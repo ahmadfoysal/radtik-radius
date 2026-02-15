@@ -1,0 +1,9 @@
+# Python Requirements for RadTik FreeRADIUS Sync Scripts
+
+# HTTP library for API requests
+requests>=2.31.0
+
+# Standard library modules (included with Python 3.6+)
+# - sqlite3 (built-in)
+# - configparser (built-in)
+# - datetime (built-in)

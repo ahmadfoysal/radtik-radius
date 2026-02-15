@@ -1,0 +1,53 @@
+# RadTik FreeRADIUS - Git Ignore File
+
+# Configuration files with secrets
+scripts/config.ini
+config.ini
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files
+*.log
+logs/
+
+# Backup files
+*.bak
+*.bak.*
+
+# SQLite databases (if testing locally)
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS generated files
+Thumbs.db
+.Spotlight-V100
+.Trashes
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/

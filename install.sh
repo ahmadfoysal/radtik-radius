@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}This script must be run with sudo${NC}"
+   echo -e "${RED}This script must be run with sudo${NC}" 
    exit 1
 fi
 
@@ -61,15 +61,15 @@ echo -e "${YELLOW}[4/10] Backing up and copying configuration files...${NC}"
 safe_copy() {
     local src="$1"
     local dest="$2"
-
+    
     if [ -f "$dest" ]; then
         echo "  → Backing up existing $(basename $dest) to ${dest}.bak.${TIMESTAMP}"
         cp "$dest" "${dest}.bak.${TIMESTAMP}"
     fi
-
+    
     # Create parent directory if needed
     mkdir -p "$(dirname $dest)"
-
+    
     echo "  → Copying $(basename $src) to $dest"
     cp "$src" "$dest"
 }
@@ -154,14 +154,14 @@ SYNC_DIR="/opt/radtik-sync"
 echo "  → Creating $SYNC_DIR directory"
 mkdir -p "$SYNC_DIR"
 
-# Copy Python scripts
+# Copy Python scripts from scripts folder
 echo "  → Copying synchronization scripts"
-cp "$SCRIPT_DIR/sync-vouchers.py" "$SYNC_DIR/"
-cp "$SCRIPT_DIR/check-activations.py" "$SYNC_DIR/"
-cp "$SCRIPT_DIR/sync-deleted.py" "$SYNC_DIR/"
+cp "$SCRIPT_DIR/scripts/sync-vouchers.py" "$SYNC_DIR/"
+cp "$SCRIPT_DIR/scripts/check-activations.py" "$SYNC_DIR/"
+cp "$SCRIPT_DIR/scripts/sync-deleted.py" "$SYNC_DIR/"
 
 # Copy config example
-cp "$SCRIPT_DIR/config.ini.example" "$SYNC_DIR/"
+cp "$SCRIPT_DIR/scripts/config.ini.example" "$SYNC_DIR/"
 
 # Create config.ini if it doesn't exist
 if [ ! -f "$SYNC_DIR/config.ini" ]; then
