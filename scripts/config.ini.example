@@ -1,0 +1,20 @@
+# RadTik FreeRADIUS Synchronization Configuration
+# Copy this file to config.ini and update with your settings
+
+[laravel]
+# Laravel API endpoint (without trailing slash)
+api_url = https://radtik.example.com/api/radius
+
+# API secret token for authentication
+# This should match the token configured in Laravel for this RADIUS server
+api_secret = your-radius-server-api-token-here
+
+[radius]
+# Path to FreeRADIUS SQLite database
+db_path = /etc/freeradius/3.0/sqlite/radius.db
+
+[sync]
+# Sync intervals (for reference, actual scheduling in cron)
+voucher_sync_minutes = 2
+activation_check_minutes = 1
+deleted_sync_minutes = 5
