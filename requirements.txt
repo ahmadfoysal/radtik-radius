@@ -1,9 +1,16 @@
 # Python Requirements for RadTik FreeRADIUS Sync Scripts
 
-# HTTP library for API requests
+# Flask web framework for API server
+flask>=3.0.0
+
+# HTTP library for API requests (legacy scripts)
 requests>=2.31.0
+
+# WSGI HTTP server for production deployment
+gunicorn>=21.2.0
 
 # Standard library modules (included with Python 3.6+)
 # - sqlite3 (built-in)
 # - configparser (built-in)
 # - datetime (built-in)
+# - logging (built-in)

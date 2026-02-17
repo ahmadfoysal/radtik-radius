@@ -1,8 +1,25 @@
 # RadTik FreeRADIUS Synchronization Configuration
 # Copy this file to config.ini and update with your settings
 
+[api]
+# API Server Configuration (Flask API for receiving sync requests from Laravel)
+# Host to bind to (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
+host = 0.0.0.0
+
+# Port to listen on
+port = 5000
+
+# Authentication token for incoming requests from Laravel
+# IMPORTANT: Change this to a secure random token!
+# This should match the 'auth_token' field in RadiusServer model in Laravel
+auth_token = your-secure-token-here
+
+# Enable debug mode (DO NOT use in production!)
+debug = false
+
 [laravel]
 # Laravel API endpoint (without trailing slash)
+# Used by legacy sync scripts (if any)
 api_url = https://radtik.example.com/api/radius
 
 # API secret token for authentication
@@ -11,7 +28,7 @@ api_secret = your-radius-server-api-token-here
 
 [radius]
 # Path to FreeRADIUS SQLite database
-db_path = /etc/freeradius/3.0/sqlite/radius.db
+db_path = /var/lib/freeradius/radius.db
 
 [sync]
 # Sync intervals (for reference, actual scheduling in cron)

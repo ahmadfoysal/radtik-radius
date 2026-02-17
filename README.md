@@ -11,23 +11,25 @@ A one-command installer for setting up FreeRADIUS with SQLite backend on Ubuntu 
 
 ```
 radtik-radius/
-├── install.sh                  # Main installation script
+├── install.sh                 # Complete installation script (interactive) 🆕
 ├── validate.sh                 # Installation validation script
 ├── README.md                   # This file
 ├── QUICKSTART.md              # Quick start guide
+├── API_QUICKSTART.md          # API server setup guide 🆕
 ├── CONTRIBUTING.md            # Contribution guidelines
 ├── LICENSE                    # MIT License
 ├── CHANGELOG.md               # Version history
 ├── VERSION                    # Current version number
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Python dependencies (Flask, Gunicorn) 🆕
 ├── .gitignore                 # Git ignore rules
 ├── clients.conf               # RADIUS clients configuration
+├── radtik-radius-api.service  # Systemd service file for API 🆕
 ├── scripts/                   # Python synchronization scripts
-│   ├── sync-vouchers.py       # Voucher sync from Laravel
-│   ├── check-activations.py   # Activation monitoring
-│   ├── sync-deleted.py        # Deleted users cleanup
-│   ├── config.ini.example     # Configuration template
-│   └── README.md              # Scripts documentation
+│   ├── sync-vouchers.py       # Flask API server (push-based) 🆕
+│   ├── check-activations.py   # Activation monitoring (legacy)
+│   ├── sync-deleted.py        # Deleted users cleanup (legacy)
+│   ├── config.ini.example     # Configuration template (updated) 🆕
+│   └── README.md              # Scripts documentation (updated) 🆕
 ├── mods-available/
 │   └── sql                    # SQL module configuration
 ├── mods-config/
@@ -36,7 +38,8 @@ radtik-radius/
 ├── sites-enabled/
 │   └── default                # Virtual server config
 └── sqlite/
-    └── radius.db              # Pre-initialized database
+    ├── radius.db              # Pre-initialized clean database ⭐
+    └── DATABASE.md            # Database documentation
 ```
 
 ## What This Installer Does
@@ -45,11 +48,18 @@ This repository contains a complete FreeRADIUS configuration bundle that:
 
 - ✅ Installs FreeRADIUS 3.0 with SQLite support
 - ✅ Configures SQL module for user authentication
-- ✅ Sets up SQLite database with proper schema (radcheck, radreply, radacct, radpostauth)
+- ✅ Sets up production-ready SQLite database with RadTik enhancements:
+    - Clean template (no test data)
+    - MAC address tracking columns
+    - Sync processing flags
+    - WAL mode enabled
+    - Performance indexes
 - ✅ Configures clients for MikroTik/RadTik integration
-- ✅ Applies SQLite optimizations (WAL mode, busy timeout)
+- 🆕 **Optional**: Flask API server for push-based voucher sync (interactive install)
+- ✅ **Optional**: Legacy Python cron scripts for polling-based sync
+- ✅ Applies SQLite optimizations (WAL mode, busy timeout, indexes)
 - ✅ Sets correct permissions for freerad user
-- ✅ Stores authentication logs including MAC address and NAS identity
+- ✅ Interactive installation with options
 
 ## Quick Installation
 
@@ -59,16 +69,43 @@ This repository contains a complete FreeRADIUS configuration bundle that:
 - Root/sudo access
 - Internet connection
 
-### Install Steps
+### One-Command Install
 
 ```bash
 # 1. Clone this repository
 git clone https://github.com/ahmadfoysal/radtik-radius.git
 cd radtik-radius
 
-# 2. Run the installer
+# 2. Run the installer (interactive)
 sudo bash install.sh
 ```
+
+The installer will:
+
+1. Install FreeRADIUS with SQLite backend
+2. **Ask** if you want to install the API Server (recommended for Laravel)
+3. **Ask** if you want legacy sync scripts (if API server not selected)
+4. Configure everything automatically
+5. Generate secure authentication token (for API server)
+6. Test and verify the installation
+
+### Installation Options
+
+During installation, you'll be prompted to choose:
+
+- **API Server** (Recommended) - Real-time push-based sync via Flask API
+    - Instant voucher synchronization from Laravel
+    - Requires port 5000 open
+    - Uses Laravel queue jobs
+- **Legacy Cron Sync** - Polling-based sync via cron jobs
+    - Syncs every 2-5 minutes
+    - No additional ports required
+    - Fallback option
+
+You can install just FreeRADIUS, FreeRADIUS + API Server, or FreeRADIUS + Legacy Sync.# 2. Run the installer
+sudo bash install.sh
+
+````
 
 That's it! The installer will:
 
@@ -85,9 +122,10 @@ After installation, run the validation script to verify everything is configured
 
 ```bash
 sudo bash validate.sh
-```
+````
 
 The validator will check:
+
 - ✅ FreeRADIUS service status
 - ✅ Configuration files
 - ✅ Database setup and permissions
@@ -99,6 +137,7 @@ The validator will check:
 - ⚠️ Security warnings (default secrets, open IPs)
 
 **Sample output:**
+
 ```
 ===== RadTik FreeRADIUS Installation Validator =====
 
@@ -245,24 +284,24 @@ sudo chmod 664 /etc/freeradius/3.0/sqlite/radius.db*
 
 1. **Check the user exists in radcheck:**
 
-   ```bash
-   sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "SELECT * FROM radcheck WHERE username='testuser';"
-   ```
+    ```bash
+    sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "SELECT * FROM radcheck WHERE username='testuser';"
+    ```
 
 2. **Verify the shared secret** matches in both:
-   - `/etc/freeradius/3.0/clients.conf` (RADIUS server side)
-   - MikroTik configuration (client side)
+    - `/etc/freeradius/3.0/clients.conf` (RADIUS server side)
+    - MikroTik configuration (client side)
 
 3. **Check recent auth logs:**
 
-   ```bash
-   sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "SELECT username, reply, authdate FROM radpostauth ORDER BY authdate DESC LIMIT 10;"
-   ```
+    ```bash
+    sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "SELECT username, reply, authdate FROM radpostauth ORDER BY authdate DESC LIMIT 10;"
+    ```
 
 4. **Check FreeRADIUS logs:**
-   ```bash
-   sudo tail -f /var/log/freeradius/radius.log
-   ```
+    ```bash
+    sudo tail -f /var/log/freeradius/radius.log
+    ```
 
 ### Database Locked Errors
 
@@ -270,10 +309,10 @@ If you see "database is locked" errors:
 
 - The installer already enables WAL mode and sets `busy_timeout=30000`
 - Verify WAL mode is active:
-  ```bash
-  sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "PRAGMA journal_mode;"
-  ```
-  Should return: `wal`
+    ```bash
+    sudo sqlite3 /etc/freeradius/3.0/sqlite/radius.db "PRAGMA journal_mode;"
+    ```
+    Should return: `wal`
 
 ## Security Notes
 
@@ -282,24 +321,24 @@ If you see "database is locked" errors:
 ### Before Production Deployment:
 
 1. **Change the shared secret** in `clients.conf`:
-   - Replace `testing123` with a strong random secret (20+ characters)
-   - Use different secrets for each client in production
+    - Replace `testing123` with a strong random secret (20+ characters)
+    - Use different secrets for each client in production
 
 2. **Restrict client access**:
-   - Replace `0.0.0.0/0` with specific IP addresses or subnets
-   - Example: `192.168.1.1/32` for a single MikroTik router
+    - Replace `0.0.0.0/0` with specific IP addresses or subnets
+    - Example: `192.168.1.1/32` for a single MikroTik router
 
 3. **Use strong passwords**:
-   - Never use simple passwords like `testpass` for real users
-   - Consider using MD5-Password or other hashed methods instead of Cleartext-Password
+    - Never use simple passwords like `testpass` for real users
+    - Consider using MD5-Password or other hashed methods instead of Cleartext-Password
 
 4. **Firewall configuration**:
-   - If using `0.0.0.0/0` in clients.conf, ensure your firewall blocks external access to UDP ports 1812 (auth) and 1813 (accounting)
-   - Only allow RADIUS traffic from trusted networks
+    - If using `0.0.0.0/0` in clients.conf, ensure your firewall blocks external access to UDP ports 1812 (auth) and 1813 (accounting)
+    - Only allow RADIUS traffic from trusted networks
 
 5. **Regular backups**:
-   - Back up `/etc/freeradius/3.0/sqlite/radius.db` regularly
-   - Consider implementing automated backups
+    - Back up `/etc/freeradius/3.0/sqlite/radius.db` regularly
+    - Consider implementing automated backups
 
 ### Example Production Client Configuration:
 
@@ -316,9 +355,45 @@ client mikrotik-branch1 {
 
 This FreeRADIUS setup includes **automatic synchronization** with Laravel RADTik application for seamless voucher management.
 
-### How It Works
+### 🆕 API Server Integration (Recommended)
 
-The installation includes Python scripts that synchronize data between Laravel and FreeRADIUS:
+**New in v4.0**: The preferred integration method is now **push-based** using the Flask API server. Laravel pushes vouchers directly to RADIUS via queue jobs.
+
+```
+┌─────────────┐
+│   Laravel   │
+│  (RADTik)   │
+└──────┬──────┘
+       │ Queue Job (Push)
+       │ POST /sync/vouchers
+       ▼
+┌─────────────┐
+│   Flask API │
+│ (Port 5000) │
+└──────┬──────┘
+       │ SQLite Insert
+       ▼
+┌─────────────┐
+│ FreeRADIUS  │
+│   Database  │
+└─────────────┘
+```
+
+**Benefits:**
+
+- ✅ Instant sync (no polling delay)
+- ✅ Scalable (handles 1000+ vouchers)
+- ✅ Reliable (automatic retry on failure)
+- ✅ Observable (track sync status per voucher)
+
+**Setup Guide:** See [`API_QUICKSTART.md`](API_QUICKSTART.md) for complete configuration instructions.
+
+**Installation:**
+The API server is included in the main installer. When you run `sudo bash install.sh`, you'll be prompted to install it. Or reinstall just FreeRADIUS and run the installer again selecting the API server option.
+
+### Legacy Sync Method (Cron-based)
+
+The installation also includes traditional Python cron scripts that poll Laravel for updates:
 
 ```
 ┌─────────────┐      Cron Jobs      ┌──────────────┐
@@ -330,18 +405,18 @@ The installation includes Python scripts that synchronize data between Laravel a
 ### Synchronization Features
 
 1. **Voucher Sync** (Every 2 minutes)
-   - Pulls vouchers from Laravel → Updates FreeRADIUS `radcheck` and `radreply` tables
-   - Applies profile settings: rate limits, validity, shared users
-   - Handles MAC binding configurations
+    - Pulls vouchers from Laravel → Updates FreeRADIUS `radcheck` and `radreply` tables
+    - Applies profile settings: rate limits, validity, shared users
+    - Handles MAC binding configurations
 
 2. **Activation Monitoring** (Every 1 minute)
-   - Monitors `radpostauth` for first successful logins
-   - Sends MAC address and activation time to Laravel
-   - Applies MAC binding if profile requires it
+    - Monitors `radpostauth` for first successful logins
+    - Sends MAC address and activation time to Laravel
+    - Applies MAC binding if profile requires it
 
 3. **Deleted Users Sync** (Every 5 minutes)
-   - Removes deleted vouchers from FreeRADIUS
-   - Keeps historical data in `radacct` and `radpostauth` for auditing
+    - Removes deleted vouchers from FreeRADIUS
+    - Keeps historical data in `radacct` and `radpostauth` for auditing
 
 ### Configuration
 
@@ -413,27 +488,27 @@ sudo grep CRON /var/log/syslog | grep radtik-sync
 ### Complete User Flow Example
 
 1. **Admin generates voucher in Laravel:**
-   - Username: `VOUCHER001`
-   - Profile: 10Mbps, 24h validity, MAC binding enabled
+    - Username: `VOUCHER001`
+    - Profile: 10Mbps, 24h validity, MAC binding enabled
 
 2. **Cron syncs to FreeRADIUS** (within 2 minutes):
-   - Creates entry in `radcheck` with password
-   - Creates entries in `radreply` with bandwidth limits and timeouts
+    - Creates entry in `radcheck` with password
+    - Creates entries in `radreply` with bandwidth limits and timeouts
 
 3. **User connects to WiFi:**
-   - Enters credentials
-   - FreeRADIUS authenticates
-   - Records MAC address in `radpostauth`
+    - Enters credentials
+    - FreeRADIUS authenticates
+    - Records MAC address in `radpostauth`
 
 4. **Activation monitor detects login** (within 1 minute):
-   - Calls Laravel API with username, MAC, timestamp
-   - Laravel activates voucher and sets expiry
-   - If profile requires MAC binding, adds check to FreeRADIUS
-   - User is now locked to that device
+    - Calls Laravel API with username, MAC, timestamp
+    - Laravel activates voucher and sets expiry
+    - If profile requires MAC binding, adds check to FreeRADIUS
+    - User is now locked to that device
 
 5. **Admin deletes voucher in Laravel:**
-   - Cron removes user from FreeRADIUS (within 5 minutes)
-   - User can no longer authenticate
+    - Cron removes user from FreeRADIUS (within 5 minutes)
+    - User can no longer authenticate
 
 ### Troubleshooting Sync Issues
 

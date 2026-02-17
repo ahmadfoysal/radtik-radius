@@ -1,181 +1,438 @@
 #!/usr/bin/env python3
 """
-RadTik FreeRADIUS Voucher Synchronization
-Syncs vouchers from Laravel to FreeRADIUS radcheck/radreply tables
+RadTik RADIUS API Server
+Flask-based API server for syncing vouchers from Laravel to FreeRADIUS SQLite database.
+
+Endpoints:
+- POST /sync/vouchers - Sync batch of vouchers to RADIUS database
+- DELETE /delete/voucher - Delete a voucher from RADIUS database
+- GET /health - Health check endpoint
+
+Authentication: Bearer token (configured in config.ini)
 """
 
-import requests
 import sqlite3
 import configparser
-import sys
+import logging
 import os
+import sys
 from datetime import datetime
+from functools import wraps
+from flask import Flask, request, jsonify
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/radtik-radius-api.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
+app = Flask(__name__)
 
 # Load configuration
 config = configparser.ConfigParser()
 config_path = os.path.join(os.path.dirname(__file__), 'config.ini')
 
 if not os.path.exists(config_path):
-    print(f"❌ Configuration file not found: {config_path}", file=sys.stderr)
+    logger.error(f"Configuration file not found: {config_path}")
     sys.exit(1)
 
 config.read(config_path)
 
-LARAVEL_API = config['laravel']['api_url']
-API_SECRET = config['laravel']['api_secret']
-RADIUS_DB = config['radius']['db_path']
+# Configuration variables
+DB_PATH = config.get('radius', 'db_path', fallback='/var/lib/freeradius/radius.db')
+AUTH_TOKEN = config.get('api', 'auth_token')
+API_HOST = config.get('api', 'host', fallback='0.0.0.0')
+API_PORT = config.getint('api', 'port', fallback=5000)
+DEBUG_MODE = config.getboolean('api', 'debug', fallback=False)
+
+# Validate configuration
+if not AUTH_TOKEN or AUTH_TOKEN == 'your-secure-token-here':
+    logger.error("AUTH_TOKEN not configured in config.ini! Please set a secure token.")
+    sys.exit(1)
+
+if not os.path.exists(DB_PATH):
+    logger.error(f"RADIUS database not found: {DB_PATH}")
+    sys.exit(1)
 
 
-def parse_rate_limit(rate_limit):
-    """
-    Parse rate limit string (e.g., "10M/10M") to bytes per second
-    Supports: K (kilobits), M (megabits), G (gigabits)
-    """
+def get_db_connection():
+    """Get SQLite database connection"""
     try:
-        parts = rate_limit.upper().split('/')
-        
-        def to_bytes(value):
-            if 'G' in value:
-                return int(value.replace('G', '')) * 1000000000
-            elif 'M' in value:
-                return int(value.replace('M', '')) * 1000000
-            elif 'K' in value:
-                return int(value.replace('K', '')) * 1000
-            else:
-                return int(value)
-        
-        upload = to_bytes(parts[0].strip())
-        download = to_bytes(parts[1].strip()) if len(parts) > 1 else upload
-        
-        return upload, download
-    except Exception as e:
-        print(f"⚠️  Failed to parse rate limit '{rate_limit}': {e}", file=sys.stderr)
-        return None, None
-
-
-def fetch_vouchers_from_laravel():
-    """Fetch active vouchers from Laravel API"""
-    try:
-        response = requests.post(
-            f"{LARAVEL_API}/sync/vouchers",
-            headers={
-                'X-RADIUS-SECRET': API_SECRET,
-                'Content-Type': 'application/json'
-            },
-            timeout=30
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Failed to fetch vouchers from Laravel: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-def sync_voucher_to_radius(cursor, voucher):
-    """Sync a single voucher to FreeRADIUS database"""
-    username = voucher['username']
-    password = voucher['password']
-    profile = voucher['profile']
-    
-    try:
-        # Delete existing entries
-        cursor.execute("DELETE FROM radcheck WHERE username = ?", (username,))
-        cursor.execute("DELETE FROM radreply WHERE username = ?", (username,))
-        
-        # Insert password
-        cursor.execute("""
-            INSERT INTO radcheck (username, attribute, op, value)
-            VALUES (?, 'Cleartext-Password', ':=', ?)
-        """, (username, password))
-        
-        # Add MAC binding if specified in voucher
-        if voucher.get('mac_address'):
-            cursor.execute("""
-                INSERT INTO radcheck (username, attribute, op, value)
-                VALUES (?, 'Calling-Station-Id', '==', ?)
-            """, (username, voucher['mac_address']))
-        
-        # Apply profile settings
-        if profile:
-            # Session timeout (session_timeout in seconds)
-            if profile.get('session_timeout'):
-                cursor.execute("""
-                    INSERT INTO radreply (username, attribute, op, value)
-                    VALUES (?, 'Session-Timeout', ':=', ?)
-                """, (username, str(profile['session_timeout'])))
-            
-            # Idle timeout
-            if profile.get('idle_timeout'):
-                cursor.execute("""
-                    INSERT INTO radreply (username, attribute, op, value)
-                    VALUES (?, 'Idle-Timeout', ':=', ?)
-                """, (username, str(profile['idle_timeout'])))
-            
-            # Simultaneous use (shared users)
-            if profile.get('shared_users'):
-                cursor.execute("""
-                    INSERT INTO radreply (username, attribute, op, value)
-                    VALUES (?, 'Simultaneous-Use', ':=', ?)
-                """, (username, str(profile['shared_users'])))
-            
-            # Bandwidth limit (WISPr-Bandwidth attributes for MikroTik)
-            if profile.get('rate_limit'):
-                upload, download = parse_rate_limit(profile['rate_limit'])
-                if upload and download:
-                    # MikroTik uses WISPr-Bandwidth-Max-Up and WISPr-Bandwidth-Max-Down
-                    cursor.execute("""
-                        INSERT INTO radreply (username, attribute, op, value)
-                        VALUES (?, 'WISPr-Bandwidth-Max-Up', ':=', ?)
-                    """, (username, str(upload)))
-                    
-                    cursor.execute("""
-                        INSERT INTO radreply (username, attribute, op, value)
-                        VALUES (?, 'WISPr-Bandwidth-Max-Down', ':=', ?)
-                    """, (username, str(download)))
-        
-        return True
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
     except sqlite3.Error as e:
-        print(f"⚠️  Failed to sync voucher '{username}': {e}", file=sys.stderr)
-        return False
+        logger.error(f"Database connection error: {e}")
+        raise
 
 
-def main():
-    """Main synchronization function"""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting voucher synchronization...")
+def require_auth(f):
+    """Decorator to require Bearer token authentication"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            logger.warning(f"Missing Authorization header from {request.remote_addr}")
+            return jsonify({'error': 'Missing Authorization header'}), 401
+        
+        if not auth_header.startswith('Bearer '):
+            logger.warning(f"Invalid Authorization format from {request.remote_addr}")
+            return jsonify({'error': 'Invalid Authorization format. Use: Bearer <token>'}), 401
+        
+        token = auth_header.replace('Bearer ', '', 1)
+        
+        if token != AUTH_TOKEN:
+            logger.warning(f"Invalid token from {request.remote_addr}")
+            return jsonify({'error': 'Invalid authentication token'}), 401
+        
+        return f(*args, **kwargs)
     
-    # Fetch vouchers from Laravel
-    data = fetch_vouchers_from_laravel()
-    vouchers = data.get('vouchers', [])
-    
-    if not vouchers:
-        print("ℹ️  No vouchers to sync")
-        return
-    
-    # Connect to FreeRADIUS database
+    return decorated_function
+
+
+@app.route('/health', methods=['GET'])
+@require_auth
+def health_check():
+    """Health check endpoint"""
     try:
-        conn = sqlite3.connect(RADIUS_DB, timeout=30.0)
+        # Test database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM radcheck")
+        count = cursor.fetchone()[0]
+        conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'database': 'connected',
+            'radcheck_records': count
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
+
+
+@app.route('/sync/vouchers', methods=['POST'])
+@require_auth
+def sync_vouchers():
+    """
+    Sync batch of vouchers to RADIUS database
+    
+    Expected JSON payload:
+    {
+        "vouchers": [
+            {
+                "username": "ABC12345",
+                "password": "pass123",
+                "mikrotik_rate_limit": "512k/512k",
+                "nas_identifier": "mikrotik-router-1"
+            }
+        ]
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "synced": 250,
+        "failed": 0,
+        "errors": []
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'vouchers' not in data:
+            logger.warning(f"Invalid request payload from {request.remote_addr}")
+            return jsonify({
+                'success': False,
+                'error': 'Missing vouchers array in request'
+            }), 400
+        
+        vouchers = data['vouchers']
+        
+        if not isinstance(vouchers, list):
+            return jsonify({
+                'success': False,
+                'error': 'vouchers must be an array'
+            }), 400
+        
+        if len(vouchers) == 0:
+            return jsonify({
+                'success': True,
+                'synced': 0,
+                'failed': 0,
+                'errors': []
+            }), 200
+        
+        logger.info(f"Received sync request for {len(vouchers)} vouchers from {request.remote_addr}")
+        
+        synced = 0
+        failed = 0
+        errors = []
+        
+        conn = get_db_connection()
         cursor = conn.cursor()
         
-        success_count = 0
-        fail_count = 0
-        
         for voucher in vouchers:
-            if sync_voucher_to_radius(cursor, voucher):
-                success_count += 1
-            else:
-                fail_count += 1
+            try:
+                # Validate required fields
+                required_fields = ['username', 'password', 'mikrotik_rate_limit', 'nas_identifier']
+                missing_fields = [field for field in required_fields if field not in voucher]
+                
+                if missing_fields:
+                    raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+                
+                username = voucher['username']
+                password = voucher['password']
+                rate_limit = voucher['mikrotik_rate_limit']
+                nas_identifier = voucher['nas_identifier']
+                
+                # Check if voucher already exists
+                cursor.execute(
+                    "SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'",
+                    (username,)
+                )
+                exists = cursor.fetchone()[0] > 0
+                
+                if exists:
+                    logger.warning(f"Voucher {username} already exists, skipping")
+                    errors.append(f"{username}: Already exists")
+                    failed += 1
+                    continue
+                
+                # Insert into radcheck table (2 rows per voucher)
+                # Row 1: Password
+                cursor.execute(
+                    "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                    (username, 'Cleartext-Password', ':=', password)
+                )
+                
+                # Row 2: NAS Identifier (for router binding)
+                cursor.execute(
+                    "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                    (username, 'NAS-Identifier', '==', nas_identifier)
+                )
+                
+                # Insert into radreply table (1 row per voucher)
+                # MikroTik rate limit
+                cursor.execute(
+                    "INSERT INTO radreply (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                    (username, 'Mikrotik-Rate-Limit', ':=', rate_limit)
+                )
+                
+                synced += 1
+                logger.debug(f"Successfully synced voucher: {username}")
+                
+            except ValueError as e:
+                failed += 1
+                error_msg = f"{voucher.get('username', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Validation error: {error_msg}")
+                
+            except sqlite3.Error as e:
+                failed += 1
+                error_msg = f"{username}: Database error - {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Database error for {username}: {e}")
+                
+            except Exception as e:
+                failed += 1
+                error_msg = f"{voucher.get('username', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Unexpected error: {error_msg}")
+        
+        # Commit all changes
+        conn.commit()
+        conn.close()
+        
+        success = failed == 0
+        
+        logger.info(f"Sync completed: {synced} synced, {failed} failed")
+        
+        return jsonify({
+            'success': success,
+            'synced': synced,
+            'failed': failed,
+            'errors': errors
+        }), 200 if success else 207  # 207 Multi-Status for partial success
+        
+    except Exception as e:
+        logger.error(f"Sync endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/delete/voucher', methods=['DELETE'])
+@require_auth
+def delete_voucher():
+    """
+    Delete a voucher from RADIUS database
+    
+    Expected JSON payload:
+    {
+        "username": "ABC12345"
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "message": "Voucher deleted successfully"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'username' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing username in request'
+            }), 400
+        
+        username = data['username']
+        
+        logger.info(f"Deleting voucher: {username}")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Delete from radcheck
+        cursor.execute("DELETE FROM radcheck WHERE username = ?", (username,))
+        radcheck_deleted = cursor.rowcount
+        
+        # Delete from radreply
+        cursor.execute("DELETE FROM radreply WHERE username = ?", (username,))
+        radreply_deleted = cursor.rowcount
         
         conn.commit()
         conn.close()
         
-        print(f"✅ Successfully synced {success_count}/{len(vouchers)} vouchers")
-        if fail_count > 0:
-            print(f"⚠️  {fail_count} vouchers failed to sync")
+        if radcheck_deleted == 0 and radreply_deleted == 0:
+            logger.warning(f"Voucher not found: {username}")
+            return jsonify({
+                'success': False,
+                'error': 'Voucher not found'
+            }), 404
+        
+        logger.info(f"Voucher deleted: {username} ({radcheck_deleted} radcheck, {radreply_deleted} radreply)")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Voucher deleted successfully',
+            'deleted': {
+                'radcheck': radcheck_deleted,
+                'radreply': radreply_deleted
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Delete endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/stats', methods=['GET'])
+@require_auth
+def get_stats():
+    """Get RADIUS database statistics"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Count unique users
+        cursor.execute("SELECT COUNT(DISTINCT username) FROM radcheck WHERE attribute = 'Cleartext-Password'")
+        total_users = cursor.fetchone()[0]
+        
+        # Count total records
+        cursor.execute("SELECT COUNT(*) FROM radcheck")
+        radcheck_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM radreply")
+        radreply_count = cursor.fetchone()[0]
+        
+        # Get NAS identifiers
+        cursor.execute("SELECT DISTINCT value FROM radcheck WHERE attribute = 'NAS-Identifier'")
+        nas_identifiers = [row[0] for row in cursor.fetchall()]
+        
+        conn.close()
+        
+        return jsonify({
+            'total_users': total_users,
+            'radcheck_records': radcheck_count,
+            'radreply_records': radreply_count,
+            'nas_identifiers': nas_identifiers,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Stats endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.errorhandler(404)
+def not_found(e):
+    """Handle 404 errors"""
+    return jsonify({
+        'error': 'Endpoint not found',
+        'available_endpoints': [
+            'GET /health',
+            'POST /sync/vouchers',
+            'DELETE /delete/voucher',
+            'GET /stats'
+        ]
+    }), 404
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Handle 500 errors"""
+    logger.error(f"Internal server error: {e}")
+    return jsonify({
+        'error': 'Internal server error',
+        'message': str(e)
+    }), 500
+
+
+def main():
+    """Main entry point"""
+    logger.info("=" * 60)
+    logger.info("RadTik RADIUS API Server Starting")
+    logger.info("=" * 60)
+    logger.info(f"Database: {DB_PATH}")
+    logger.info(f"Listening on: {API_HOST}:{API_PORT}")
+    logger.info(f"Debug mode: {DEBUG_MODE}")
+    logger.info("Endpoints:")
+    logger.info("  - GET  /health          (Health check)")
+    logger.info("  - POST /sync/vouchers   (Sync vouchers)")
+    logger.info("  - DELETE /delete/voucher (Delete voucher)")
+    logger.info("  - GET  /stats           (Database stats)")
+    logger.info("=" * 60)
     
-    except sqlite3.Error as e:
-        print(f"❌ Database error: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Run Flask app
+    app.run(
+        host=API_HOST,
+        port=API_PORT,
+        debug=DEBUG_MODE,
+        threaded=True
+    )
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -1,0 +1,41 @@
+[Unit]
+Description=RadTik RADIUS API Server
+After=network.target freeradius.service
+Wants=freeradius.service
+
+[Service]
+Type=simple
+User=freerad
+Group=freerad
+WorkingDirectory=/opt/radtik-radius/scripts
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Use gunicorn for production deployment (recommended)
+ExecStart=/usr/local/bin/gunicorn \
+    --bind 0.0.0.0:5000 \
+    --workers 4 \
+    --timeout 30 \
+    --access-logfile /var/log/radtik-radius-access.log \
+    --error-logfile /var/log/radtik-radius-error.log \
+    --log-level info \
+    sync-vouchers:app
+
+# Alternative: Use Flask development server (NOT for production!)
+# ExecStart=/usr/bin/python3 /opt/radtik-radius/scripts/sync-vouchers.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/freeradius /var/log
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
