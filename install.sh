@@ -322,21 +322,30 @@ echo ""
 ###############################################################################
 echo -e "${YELLOW}[API 2/5] Setting permissions and creating log files...${NC}"
 
+# Make Python script executable
 chmod +x "$SCRIPTS_DIR/sync-vouchers.py"
 
-# Create log files
+# Create log files with proper permissions
+echo "  → Creating log files"
 touch /var/log/radtik-radius-access.log
 touch /var/log/radtik-radius-error.log
 
-# Set ownership for installation directory and logs
+# Set installation directory permissions
+echo "  → Setting directory permissions"
+chmod 755 "$INSTALL_DIR"
+chmod 755 "$SCRIPTS_DIR"
+chmod 644 "$SCRIPTS_DIR"/*.py 2>/dev/null || true
+
+# Set ownership for directories and files
 if id "freerad" &>/dev/null; then
+    echo "  → Setting ownership to freerad:freerad"
     chown -R freerad:freerad "$INSTALL_DIR"
     chown freerad:freerad /var/log/radtik-radius-*.log
-    chmod 755 "$INSTALL_DIR"
-    chmod 755 "$SCRIPTS_DIR"
-    print_info "Ownership and permissions set"
+    chmod 644 /var/log/radtik-radius-*.log
+    print_info "Permissions and ownership configured"
 else
-    print_warning "freerad user not found, skipping ownership change"
+    print_error "freerad user not found, service will fail to start"
+    exit 1
 fi
 echo ""
 
@@ -379,25 +388,44 @@ echo ""
 ###############################################################################
 # API Step 5: Test and enable service
 ###############################################################################
-echo -e "${YELLOW}[API 5/5] Testing and enabling API service...${NC}"
+echo -e "${YELLOW}[API 5/5] Starting and testing API service...${NC}"
 
 # Start service
+echo "  → Starting radtik-radius-api service"
 systemctl start $API_SERVICE_NAME
 
-sleep 3
+# Wait for service to fully start
+sleep 5
 
-# Test health endpoint
-RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
-
-if [[ $RESPONSE == *"healthy"* ]]; then
-    print_info "API server is healthy and responding"
+# Check if service is running
+if systemctl is-active --quiet $API_SERVICE_NAME; then
+    print_info "Service is running"
     
-    # Enable service
-    systemctl enable $API_SERVICE_NAME > /dev/null 2>&1
-    print_info "API service enabled on boot"
+    # Test health endpoint
+    echo "  → Testing API health endpoint"
+    RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
+    
+    if [[ $RESPONSE == *"healthy"* ]]; then
+        print_info "API server is healthy and responding"
+        echo "  → Response: $RESPONSE"
+        
+        # Enable service on boot
+        systemctl enable $API_SERVICE_NAME > /dev/null 2>&1
+        print_info "Service enabled on boot"
+    else
+        print_warning "API health check received unexpected response"
+        echo "  → Response: $RESPONSE"
+        echo "  → Service is running but may have issues"
+    fi
 else
-    print_warning "API server health check failed, but service is running"
-    print_warning "Check logs: sudo journalctl -u $API_SERVICE_NAME -f"
+    print_error "Service failed to start"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check service status: sudo systemctl status $API_SERVICE_NAME"
+    echo "  2. View error logs: sudo tail -50 /var/log/radtik-radius-error.log"
+    echo "  3. Check permissions: ls -la $SCRIPTS_DIR"
+    echo "  4. Test manually: cd $SCRIPTS_DIR && sudo -u freerad python3 sync-vouchers.py"
+    exit 1
 fi
 echo ""
 
@@ -496,6 +524,55 @@ print_warning "Edit $SYNC_DIR/config.ini to set Laravel API URL and token"
 echo ""
 
 print_header "✓ Legacy Sync Scripts Installation Complete"
+
+###############################################################################
+# Final Verification
+###############################################################################
+
+print_header "Final Verification"
+
+echo -e "${YELLOW}Verifying services...${NC}"
+echo ""
+
+# Check FreeRADIUS
+if systemctl is-active --quiet freeradius; then
+    echo -e "${GREEN}✓${NC} FreeRADIUS is running"
+else
+    echo -e "${RED}✗${NC} FreeRADIUS is not running"
+fi
+
+# Check API Server
+if systemctl is-active --quiet $API_SERVICE_NAME; then
+    echo -e "${GREEN}✓${NC} API Server is running"
+    
+    # Test API endpoint
+    API_TEST=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
+    if [[ $API_TEST == *"healthy"* ]]; then
+        echo -e "${GREEN}✓${NC} API health check passed"
+    else
+        echo -e "${YELLOW}⚠${NC} API health check failed (may need time to warm up)"
+    fi
+else
+    echo -e "${RED}✗${NC} API Server is not running"
+fi
+
+# Check database permissions
+if [ -r "$FREERADIUS_DIR/sqlite/radius.db" ]; then
+    echo -e "${GREEN}✓${NC} Database is accessible"
+else
+    echo -e "${RED}✗${NC} Database permission issues"
+fi
+
+# Check port 5000
+if netstat -tuln 2>/dev/null | grep -q ":5000 " || ss -tuln 2>/dev/null | grep -q ":5000 "; then
+    echo -e "${GREEN}✓${NC} Port 5000 is listening"
+else
+    echo -e "${YELLOW}⚠${NC} Port 5000 is not listening"
+fi
+
+echo ""
+
+print_header "✓ Verification Complete"
 
 ###############################################################################
 # Final Summary
