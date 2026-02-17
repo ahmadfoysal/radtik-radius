@@ -391,6 +391,13 @@ print_header "PHASE 3: Installing Legacy Sync Scripts"
 ###############################################################################
 echo -e "${YELLOW}[Legacy 1/3] Setting up sync directory...${NC}"
     
+    # Create sync directory if it doesn't exist
+    mkdir -p "$SYNC_DIR"
+    
+    # Copy Python scripts
+    cp "$SCRIPTS_DIR"/check-activations.py "$SYNC_DIR/" 2>/dev/null || print_warning "check-activations.py not found"
+    cp "$SCRIPTS_DIR"/sync-deleted.py "$SYNC_DIR/" 2>/dev/null || print_warning "sync-deleted.py not found"
+    
     # Copy config example
     cp "$SCRIPTS_DIR/config.ini.example" "$SYNC_DIR/"
     
