@@ -32,7 +32,6 @@ SCRIPTS_DIR="$SCRIPT_DIR/scripts"
 SYNC_DIR="/opt/radtik-sync"
 API_SERVICE_NAME="radtik-radius-api"
 API_SERVICE_FILE="/etc/systemd/system/${API_SERVICE_NAME}.service"
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
 ###############################################################################
 # Helper Functions
@@ -120,19 +119,14 @@ print_info "Service stopped"
 echo ""
 
 ###############################################################################
-# Step 4: Backup existing files and copy new configuration
+# Step 4: Copy configuration files
 ###############################################################################
-echo -e "${YELLOW}[4/9] Backing up and copying configuration files...${NC}"
+echo -e "${YELLOW}[4/9] Copying configuration files...${NC}"
 
-# Function to safely copy with backup
+# Function to copy and replace files
 safe_copy() {
     local src="$1"
     local dest="$2"
-    
-    if [ -f "$dest" ]; then
-        echo "  → Backing up existing $(basename $dest) to ${dest}.bak.${TIMESTAMP}"
-        cp "$dest" "${dest}.bak.${TIMESTAMP}"
-    fi
     
     # Create parent directory if needed
     mkdir -p "$(dirname $dest)"
@@ -281,10 +275,9 @@ fi
     
     if [ -f "config.ini" ]; then
         print_warning "config.ini already exists"
-        read -p "Do you want to regenerate it? (y/N): " -n 1 -r
+        read -p "Do you want to replace it? (y/N): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            mv config.ini "config.ini.bak.${TIMESTAMP}"
             cp config.ini.example config.ini
         fi
     else
