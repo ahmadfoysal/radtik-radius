@@ -129,9 +129,9 @@ safe_copy() {
     local dest="$2"
     
     # Create parent directory if needed
-    mkdir -p "$(dirname $dest)"
+    mkdir -p "$(dirname "$dest")"
     
-    echo "  → Copying $(basename $src) to $dest"
+    echo "  → Copying $(basename "$src") to $dest"
     cp "$src" "$dest"
 }
 
@@ -272,113 +272,113 @@ if [ ! -f "config.ini.example" ]; then
     print_error "config.ini.example not found"
     exit 1
 fi
-    
-    if [ -f "config.ini" ]; then
-        print_warning "config.ini already exists"
-        read -p "Do you want to replace it? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            cp config.ini.example config.ini
-        fi
-    else
+
+if [ -f "config.ini" ]; then
+    print_warning "config.ini already exists"
+    read -p "Do you want to replace it? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
         cp config.ini.example config.ini
     fi
+else
+    cp config.ini.example config.ini
+fi
+
+# Generate secure token
+API_TOKEN=$(openssl rand -hex 32)
+
+# Update config.ini with token
+sed -i "s/auth_token = your-secure-token-here/auth_token = $API_TOKEN/" config.ini
+
+# Update database path
+sed -i "s|db_path = /var/lib/freeradius/radius.db|db_path = $FREERADIUS_DIR/sqlite/radius.db|" config.ini
+
+print_info "Configuration file created: $SCRIPTS_DIR/config.ini"
+print_info "Generated secure token (save this for Laravel)"
+echo ""
+
+###############################################################################
+# API Step 2: Set permissions
+###############################################################################
+echo -e "${YELLOW}[API 2/5] Setting permissions...${NC}"
+
+chmod +x "$SCRIPTS_DIR/sync-vouchers.py"
+
+# Set ownership
+if id "freerad" &>/dev/null; then
+    chown -R freerad:freerad "$SCRIPTS_DIR"
+    print_info "Ownership set to freerad:freerad"
+else
+    print_warning "freerad user not found, skipping ownership change"
+fi
+echo ""
+
+###############################################################################
+# API Step 3: Install systemd service
+###############################################################################
+echo -e "${YELLOW}[API 3/5] Installing systemd service...${NC}"
+
+if [ ! -f "$SCRIPT_DIR/radtik-radius-api.service" ]; then
+    print_error "Service file not found: $SCRIPT_DIR/radtik-radius-api.service"
+    exit 1
+fi
+
+# Copy and update service file
+cp "$SCRIPT_DIR/radtik-radius-api.service" "$API_SERVICE_FILE"
+
+# Update paths in service file
+sed -i "s|WorkingDirectory=.*|WorkingDirectory=$SCRIPTS_DIR|" "$API_SERVICE_FILE"
+sed -i "s|sync-vouchers:app|sync-vouchers.py:app|" "$API_SERVICE_FILE"
+
+# Reload systemd
+systemctl daemon-reload
+
+print_info "Service installed: $API_SERVICE_FILE"
+echo ""
+
+###############################################################################
+# API Step 4: Configure firewall
+###############################################################################
+echo -e "${YELLOW}[API 4/5] Configuring firewall...${NC}"
+
+if command -v ufw &> /dev/null; then
+    ufw allow 5000/tcp > /dev/null 2>&1 || true
+    print_info "UFW: Port 5000 opened"
+elif command -v firewall-cmd &> /dev/null; then
+    firewall-cmd --permanent --add-port=5000/tcp > /dev/null 2>&1 || true
+    firewall-cmd --reload > /dev/null 2>&1 || true
+    print_info "Firewalld: Port 5000 opened"
+else
+    print_warning "No firewall detected. Manually open port 5000 if needed."
+fi
+echo ""
+
+###############################################################################
+# API Step 5: Test and enable service
+###############################################################################
+echo -e "${YELLOW}[API 5/5] Testing and enabling API service...${NC}"
+
+# Start service
+systemctl start $API_SERVICE_NAME
+
+sleep 3
+
+# Test health endpoint
+RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
+
+if [[ $RESPONSE == *"healthy"* ]]; then
+    print_info "API server is healthy and responding"
     
-    # Generate secure token
-    API_TOKEN=$(openssl rand -hex 32)
-    
-    # Update config.ini with token
-    sed -i "s/auth_token = your-secure-token-here/auth_token = $API_TOKEN/" config.ini
-    
-    # Update database path
-    sed -i "s|db_path = /var/lib/freeradius/radius.db|db_path = $FREERADIUS_DIR/sqlite/radius.db|" config.ini
-    
-    print_info "Configuration file created: $SCRIPTS_DIR/config.ini"
-    print_info "Generated secure token (save this for Laravel)"
-    echo ""
-    
-    ###############################################################################
-    # API Step 2: Set permissions
-    ###############################################################################
-    echo -e "${YELLOW}[API 2/5] Setting permissions...${NC}"
-    
-    chmod +x "$SCRIPTS_DIR/sync-vouchers.py"
-    
-    # Set ownership
-    if id "freerad" &>/dev/null; then
-        chown -R freerad:freerad "$SCRIPTS_DIR"
-        print_info "Ownership set to freerad:freerad"
-    else
-        print_warning "freerad user not found, skipping ownership change"
-    fi
-    echo ""
-    
-    ###############################################################################
-    # API Step 3: Install systemd service
-    ###############################################################################
-    echo -e "${YELLOW}[API 3/5] Installing systemd service...${NC}"
-    
-    if [ ! -f "$SCRIPT_DIR/radtik-radius-api.service" ]; then
-        print_error "Service file not found: $SCRIPT_DIR/radtik-radius-api.service"
-        exit 1
-    fi
-    
-    # Copy and update service file
-    cp "$SCRIPT_DIR/radtik-radius-api.service" "$API_SERVICE_FILE"
-    
-    # Update paths in service file
-    sed -i "s|WorkingDirectory=.*|WorkingDirectory=$SCRIPTS_DIR|" "$API_SERVICE_FILE"
-    sed -i "s|sync-vouchers:app|sync-vouchers.py:app|" "$API_SERVICE_FILE"
-    
-    # Reload systemd
-    systemctl daemon-reload
-    
-    print_info "Service installed: $API_SERVICE_FILE"
-    echo ""
-    
-    ###############################################################################
-    # API Step 4: Configure firewall
-    ###############################################################################
-    echo -e "${YELLOW}[API 4/5] Configuring firewall...${NC}"
-    
-    if command -v ufw &> /dev/null; then
-        ufw allow 5000/tcp > /dev/null 2>&1 || true
-        print_info "UFW: Port 5000 opened"
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-port=5000/tcp > /dev/null 2>&1 || true
-        firewall-cmd --reload > /dev/null 2>&1 || true
-        print_info "Firewalld: Port 5000 opened"
-    else
-        print_warning "No firewall detected. Manually open port 5000 if needed."
-    fi
-    echo ""
-    
-    ###############################################################################
-    # API Step 5: Test and enable service
-    ###############################################################################
-    echo -e "${YELLOW}[API 5/5] Testing and enabling API service...${NC}"
-    
-    # Start service
-    systemctl start $API_SERVICE_NAME
-    
-    sleep 3
-    
-    # Test health endpoint
-    RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
-    
-    if [[ $RESPONSE == *"healthy"* ]]; then
-        print_info "API server is healthy and responding"
-        
-        # Enable service
-        systemctl enable $API_SERVICE_NAME > /dev/null 2>&1
-        print_info "API service enabled on boot"
-    else
-        print_warning "API server health check failed, but service is running"
-        print_warning "Check logs: sudo journalctl -u $API_SERVICE_NAME -f"
-    fi
-    echo ""
-    
-    print_header "✓ API Server Installation Complete"
+    # Enable service
+    systemctl enable $API_SERVICE_NAME > /dev/null 2>&1
+    print_info "API service enabled on boot"
+else
+    print_warning "API server health check failed, but service is running"
+    print_warning "Check logs: sudo journalctl -u $API_SERVICE_NAME -f"
+fi
+echo ""
+
+print_header "✓ API Server Installation Complete"
 
 ###############################################################################
 # PHASE 3: Legacy Sync Scripts Installation
@@ -390,45 +390,65 @@ print_header "PHASE 3: Installing Legacy Sync Scripts"
 # Legacy Step 1: Setup sync directory
 ###############################################################################
 echo -e "${YELLOW}[Legacy 1/3] Setting up sync directory...${NC}"
-    
-    # Create sync directory if it doesn't exist
-    mkdir -p "$SYNC_DIR"
-    
-    # Copy Python scripts
-    cp "$SCRIPTS_DIR"/check-activations.py "$SYNC_DIR/" 2>/dev/null || print_warning "check-activations.py not found"
-    cp "$SCRIPTS_DIR"/sync-deleted.py "$SYNC_DIR/" 2>/dev/null || print_warning "sync-deleted.py not found"
-    
-    # Copy config example
+
+# Create sync directory if it doesn't exist
+mkdir -p "$SYNC_DIR"
+
+# Copy Python scripts if they exist
+if [ -f "$SCRIPTS_DIR/check-activations.py" ]; then
+    cp "$SCRIPTS_DIR/check-activations.py" "$SYNC_DIR/"
+    print_info "Copied check-activations.py"
+else
+    print_warning "check-activations.py not found, skipping"
+fi
+
+if [ -f "$SCRIPTS_DIR/sync-deleted.py" ]; then
+    cp "$SCRIPTS_DIR/sync-deleted.py" "$SYNC_DIR/"
+    print_info "Copied sync-deleted.py"
+else
+    print_warning "sync-deleted.py not found, skipping"
+fi
+
+# Copy config example
+if [ -f "$SCRIPTS_DIR/config.ini.example" ]; then
     cp "$SCRIPTS_DIR/config.ini.example" "$SYNC_DIR/"
-    
-    # Create config.ini if it doesn't exist
-    if [ ! -f "$SYNC_DIR/config.ini" ]; then
+    print_info "Copied config.ini.example"
+else
+    print_warning "config.ini.example not found"
+fi
+
+# Create config.ini if it doesn't exist
+if [ ! -f "$SYNC_DIR/config.ini" ]; then
+    if [ -f "$SYNC_DIR/config.ini.example" ]; then
         cp "$SYNC_DIR/config.ini.example" "$SYNC_DIR/config.ini"
         print_info "Configuration template created"
     else
-        print_info "Configuration already exists"
+        print_warning "Cannot create config.ini (template missing)"
     fi
-    
-    # Make scripts executable
-    chmod +x "$SYNC_DIR"/*.py 2>/dev/null || true
-    
-    # Create log directory
-    mkdir -p /var/log/radtik-sync
-    touch /var/log/radtik-sync/activations.log
-    touch /var/log/radtik-sync/deleted.log
-    chmod 644 /var/log/radtik-sync/*.log 2>/dev/null || true
-    
-    print_info "Sync directory configured"
-    echo ""
-    
-    ###############################################################################
-    # Legacy Step 2: Setup cron jobs
-    ###############################################################################
-    echo -e "${YELLOW}[Legacy 2/3] Setting up cron jobs...${NC}"
-    
-    CRON_FILE="/etc/cron.d/radtik-sync"
-    
-    cat > "$CRON_FILE" << 'EOF'
+else
+    print_info "Configuration already exists"
+fi
+
+# Make scripts executable
+chmod +x "$SYNC_DIR"/*.py 2>/dev/null || true
+
+# Create log directory
+mkdir -p /var/log/radtik-sync
+touch /var/log/radtik-sync/activations.log
+touch /var/log/radtik-sync/deleted.log
+chmod 644 /var/log/radtik-sync/*.log 2>/dev/null || true
+
+print_info "Sync directory configured"
+echo ""
+
+###############################################################################
+# Legacy Step 2: Setup cron jobs
+###############################################################################
+echo -e "${YELLOW}[Legacy 2/3] Setting up cron jobs...${NC}"
+
+CRON_FILE="/etc/cron.d/radtik-sync"
+
+cat > "$CRON_FILE" << 'EOF'
 # RadTik FreeRADIUS Legacy Synchronization Cron Jobs
 
 # Check for new activations (MAC binding) every minute
@@ -438,20 +458,20 @@ echo -e "${YELLOW}[Legacy 1/3] Setting up sync directory...${NC}"
 */5 * * * * root /usr/bin/python3 /opt/radtik-sync/sync-deleted.py >> /var/log/radtik-sync/deleted.log 2>&1
 
 EOF
-    
-    chmod 644 "$CRON_FILE"
-    
-    print_info "Cron jobs installed"
-    echo ""
-    
-    ###############################################################################
-    # Legacy Step 3: Configuration reminder
-    ###############################################################################
-    echo -e "${YELLOW}[Legacy 3/3] Configuration required...${NC}"
-    
-    print_warning "Edit $SYNC_DIR/config.ini to set Laravel API URL and token"
-    echo ""
-    
+
+chmod 644 "$CRON_FILE"
+
+print_info "Cron jobs installed"
+echo ""
+
+###############################################################################
+# Legacy Step 3: Configuration reminder
+###############################################################################
+echo -e "${YELLOW}[Legacy 3/3] Configuration required...${NC}"
+
+print_warning "Edit $SYNC_DIR/config.ini to set Laravel API URL and token"
+echo ""
+
 print_header "✓ Legacy Sync Scripts Installation Complete"
 
 ###############################################################################
