@@ -7,6 +7,23 @@
 
 A one-command installer for setting up FreeRADIUS with SQLite backend on Ubuntu 22.04 LTS, pre-configured for RadTik hotspot authentication.
 
+## 🚀 Quick Installation
+
+### One-Line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/main/bootstrap-install.sh | sudo bash
+```
+
+**Time Required:** 5-10 minutes  
+**What It Does:** Automatically clones repository, installs FreeRADIUS + API server, configures services, and starts everything.
+
+### Or Install from Laravel Admin Panel
+
+No command-line needed! Create a RADIUS server in your Laravel admin panel and click **"Install RADIUS Server"** button. Installation happens automatically via SSH.
+
+---
+
 ## Repository Structure
 
 ```

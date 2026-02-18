@@ -1,5 +1,24 @@
 # RadTik FreeRADIUS - Quick Setup Guide
 
+## 🚀 One-Line Installation (New!)
+
+Run this command on your Ubuntu 22.04 LTS server for fully automated installation:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/main/bootstrap-install.sh | sudo bash
+```
+
+This will automatically:
+1. Clone the repository
+2. Install FreeRADIUS 3.0 + SQLite
+3. Install Flask API Server
+4. Configure and start all services
+5. **Takes 5-10 minutes** ⏱️
+
+After installation, add the server in your Laravel admin panel and click "Configure" to set secrets remotely via SSH.
+
+---
+
 ## Overview
 
 This guide walks you through setting up FreeRADIUS with Laravel integration for RADTik hotspot management. The installer offers two integration methods: **API Server** (recommended, push-based) or **Legacy Sync** (cron-based polling).
