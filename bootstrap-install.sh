@@ -67,8 +67,9 @@ if [ -d "$INSTALL_DIR" ]; then
     else
         echo -e "${YELLOW}⚠${NC} Not a git repository, backing up and cloning fresh..."
         mv "$INSTALL_DIR" "$INSTALL_DIR.backup.$(date +%s)"
+        mkdir -p "$INSTALL_DIR"
         git clone -b $REPO_BRANCH "$REPO_URL" "$TEMP_DIR"
-        cp -r "$TEMP_DIR/radtik-radius"/* "$INSTALL_DIR/"
+        cp -r "$TEMP_DIR"/* "$INSTALL_DIR/"
         rm -rf "$TEMP_DIR"
     fi
 else
