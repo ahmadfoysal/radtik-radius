@@ -12,6 +12,9 @@
 
 set -e  # Exit on any error
 
+# Set non-interactive mode to prevent prompts during installation
+export DEBIAN_FRONTEND=noninteractive
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -119,7 +122,7 @@ print_header "PHASE 1: Installing FreeRADIUS Core"
 ###############################################################################
 echo -e "${YELLOW}[1/9] Installing required packages...${NC}"
 apt-get update -qq
-apt-get install -y freeradius freeradius-utils sqlite3 python3 python3-pip curl
+apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" freeradius freeradius-utils sqlite3 python3 python3-pip curl
 print_info "Packages installed"
 echo ""
 
