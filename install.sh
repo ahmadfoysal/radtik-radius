@@ -91,15 +91,19 @@ sleep 2
 
 print_header "PHASE 0: Preparing Installation Files"
 
-echo -e "${YELLOW}[0/1] Copying files to $INSTALL_DIR...${NC}"
+echo -e "${YELLOW}[0/1] Checking installation directory...${NC}"
 
-# Create installation directory
+# Create installation directory if it doesn't exist
 mkdir -p "$INSTALL_DIR"
 
-# Copy all files to installation directory
-cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
-
-print_info "Installation files copied to $INSTALL_DIR"
+# Only copy files if we're not already in the install directory
+if [ "$(readlink -f "$SCRIPT_DIR")" != "$(readlink -f "$INSTALL_DIR")" ]; then
+    echo -e "${YELLOW}Copying files to $INSTALL_DIR...${NC}"
+    cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
+    print_info "Installation files copied to $INSTALL_DIR"
+else
+    print_info "Already running from installation directory ($INSTALL_DIR)"
+fi
 echo ""
 
 print_header "✓ Installation Files Ready"
