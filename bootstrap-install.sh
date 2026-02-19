@@ -107,6 +107,28 @@ cd "$INSTALL_DIR"
 bash "$INSTALL_DIR/install.sh"
 
 ###############################################################################
+# Extract and Display Configuration
+###############################################################################
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Reading Configuration${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+# Extract API Token from config.ini
+if [ -f "$INSTALL_DIR/scripts/config.ini" ]; then
+    API_TOKEN=$(grep "^auth_token = " "$INSTALL_DIR/scripts/config.ini" | cut -d'=' -f2 | tr -d ' ')
+else
+    API_TOKEN="Not found - check $INSTALL_DIR/scripts/config.ini"
+fi
+
+# Extract RADIUS Secret from clients.conf
+if [ -f "/etc/freeradius/3.0/clients.conf" ]; then
+    RADIUS_SECRET=$(grep -A 20 "client localhost" /etc/freeradius/3.0/clients.conf | grep "^\s*secret = " | head -1 | sed 's/.*secret = //' | tr -d ' ')
+else
+    RADIUS_SECRET="Not found - check /etc/freeradius/3.0/clients.conf"
+fi
+
+###############################################################################
 # Done
 ###############################################################################
 echo ""
@@ -114,12 +136,35 @@ echo -e "${GREEN}"
 cat << "EOF"
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║            Installation Completed Successfully!          ║
+║       Bootstrap Installation Completed Successfully!     ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 EOF
 echo -e "${NC}"
 echo ""
-echo -e "FreeRADIUS and API Server are now running!"
-echo -e "API Server: http://$(hostname -I | awk '{print $1}'):5000"
+
+echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}              IMPORTANT CONFIGURATION VALUES              ${NC}"
+echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
+echo ""
+echo -e "${GREEN}✓ FreeRADIUS Server:${NC}"
+echo -e "  • IP Address: $(hostname -I | awk '{print $1}')"
+echo -e "  • RADIUS Secret: ${YELLOW}${RADIUS_SECRET}${NC}"
+echo -e "  • Service: systemctl status freeradius"
+echo ""
+echo -e "${GREEN}✓ API Server:${NC}"
+echo -e "  • Endpoint: ${BLUE}http://$(hostname -I | awk '{print $1}'):5000${NC}"
+echo -e "  • API Token: ${YELLOW}${API_TOKEN}${NC}"
+echo -e "  • Service: systemctl status radtik-radius-api"
+echo ""
+echo -e "${BLUE}Quick Test:${NC}"
+echo -e "  curl -H 'Authorization: Bearer ${API_TOKEN}' http://localhost:5000/health"
+echo ""
+echo -e "${YELLOW}COPY THESE VALUES TO LARAVEL:${NC}"
+echo -e "  1. Login to Laravel admin panel"
+echo -e "  2. Go to RADIUS Server settings"
+echo -e "  3. Add new RADIUS server:"
+echo -e "     - Host: $(hostname -I | awk '{print $1}')"
+echo -e "     - Secret: ${YELLOW}${RADIUS_SECRET}${NC}"
+echo -e "     - API Token: ${YELLOW}${API_TOKEN}${NC}"
 echo ""
