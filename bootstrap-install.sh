@@ -107,6 +107,31 @@ cd "$INSTALL_DIR"
 bash "$INSTALL_DIR/install.sh"
 
 ###############################################################################
+# Restart Services to Apply Configuration Changes
+###############################################################################
+echo ""
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}Restarting Services${NC}"
+echo -e "${BLUE}========================================${NC}"
+
+echo -e "${YELLOW}Restarting FreeRADIUS...${NC}"
+systemctl restart freeradius
+echo -e "${GREEN}✓${NC} FreeRADIUS restarted"
+
+echo -e "${YELLOW}Restarting API Server...${NC}"
+systemctl restart radtik-radius-api
+sleep 2  # Give service time to start
+echo -e "${GREEN}✓${NC} API Server restarted"
+
+# Verify API service is running
+if systemctl is-active --quiet radtik-radius-api; then
+    echo -e "${GREEN}✓${NC} API Server is running"
+else
+    echo -e "${RED}✗${NC} API Server failed to start"
+    echo -e "${YELLOW}Check logs:${NC} journalctl -u radtik-radius-api -n 50"
+fi
+
+###############################################################################
 # Extract and Display Configuration
 ###############################################################################
 echo ""
@@ -116,16 +141,22 @@ echo -e "${BLUE}========================================${NC}"
 
 # Extract API Token from config.ini
 if [ -f "$INSTALL_DIR/scripts/config.ini" ]; then
-    API_TOKEN=$(grep "^auth_token = " "$INSTALL_DIR/scripts/config.ini" | cut -d'=' -f2 | tr -d ' ')
+    API_TOKEN=$(grep "^auth_token" "$INSTALL_DIR/scripts/config.ini" | cut -d'=' -f2 | xargs)
+    if [ -z "$API_TOKEN" ]; then
+        API_TOKEN="Not found in config.ini"
+    fi
 else
-    API_TOKEN="Not found - check $INSTALL_DIR/scripts/config.ini"
+    API_TOKEN="config.ini not found"
 fi
 
 # Extract RADIUS Secret from clients.conf
 if [ -f "/etc/freeradius/3.0/clients.conf" ]; then
-    RADIUS_SECRET=$(grep -A 20 "client localhost" /etc/freeradius/3.0/clients.conf | grep "^\s*secret = " | head -1 | sed 's/.*secret = //' | tr -d ' ')
+    RADIUS_SECRET=$(grep -E "^\s+secret\s*=" /etc/freeradius/3.0/clients.conf | head -1 | sed 's/.*secret\s*=\s*//' | xargs)
+    if [ -z "$RADIUS_SECRET" ]; then
+        RADIUS_SECRET="testing123"
+    fi
 else
-    RADIUS_SECRET="Not found - check /etc/freeradius/3.0/clients.conf"
+    RADIUS_SECRET="clients.conf not found"
 fi
 
 ###############################################################################
@@ -160,6 +191,18 @@ echo ""
 echo -e "${BLUE}Quick Test:${NC}"
 echo -e "  curl -H 'Authorization: Bearer ${API_TOKEN}' http://localhost:5000/health"
 echo ""
+
+# Test API connection
+echo -e "${YELLOW}Testing API connection...${NC}"
+API_RESPONSE=$(curl -s -H "Authorization: Bearer ${API_TOKEN}" http://localhost:5000/health 2>/dev/null)
+if echo "$API_RESPONSE" | grep -q "status"; then
+    echo -e "${GREEN}✓${NC} API Server responding correctly"
+else
+    echo -e "${RED}✗${NC} API Server returned: $API_RESPONSE"
+    echo -e "${YELLOW}⚠${NC} If you see 'Invalid authentication token', the service may need a moment to fully restart"
+fi
+echo ""
+
 echo -e "${YELLOW}COPY THESE VALUES TO LARAVEL:${NC}"
 echo -e "  1. Login to Laravel admin panel"
 echo -e "  2. Go to RADIUS Server settings"
