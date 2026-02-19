@@ -151,9 +151,17 @@ fi
 
 # Extract RADIUS Secret from clients.conf
 if [ -f "/etc/freeradius/3.0/clients.conf" ]; then
-    RADIUS_SECRET=$(grep -E "^\s+secret\s*=" /etc/freeradius/3.0/clients.conf | head -1 | sed 's/.*secret\s*=\s*//' | xargs)
+    # Try to extract secret from 'client radtik' section (production client)
+    RADIUS_SECRET=$(grep -A 10 "client radtik" /etc/freeradius/3.0/clients.conf | grep -E "^\s+secret\s*=" | head -1 | sed 's/.*secret\s*=\s*//' | xargs)
+    
+    # If not found, try localhost as fallback
     if [ -z "$RADIUS_SECRET" ]; then
-        RADIUS_SECRET="testing123"
+        RADIUS_SECRET=$(grep -A 10 "client localhost" /etc/freeradius/3.0/clients.conf | grep -E "^\s+secret\s*=" | head -1 | sed 's/.*secret\s*=\s*//' | xargs)
+    fi
+    
+    # Final fallback
+    if [ -z "$RADIUS_SECRET" ]; then
+        RADIUS_SECRET="Not found in clients.conf"
     fi
 else
     RADIUS_SECRET="clients.conf not found"
@@ -180,7 +188,7 @@ echo -e "${YELLOW}════════════════════�
 echo ""
 echo -e "${GREEN}✓ FreeRADIUS Server:${NC}"
 echo -e "  • IP Address: $(hostname -I | awk '{print $1}')"
-echo -e "  • RADIUS Secret: ${YELLOW}${RADIUS_SECRET}${NC}"
+echo -e "  • RADIUS Secret (for NAS/Router): ${YELLOW}${RADIUS_SECRET}${NC}"
 echo -e "  • Service: systemctl status freeradius"
 echo ""
 echo -e "${GREEN}✓ API Server:${NC}"
@@ -208,6 +216,6 @@ echo -e "  1. Login to Laravel admin panel"
 echo -e "  2. Go to RADIUS Server settings"
 echo -e "  3. Add new RADIUS server:"
 echo -e "     - Host: $(hostname -I | awk '{print $1}')"
-echo -e "     - Secret: ${YELLOW}${RADIUS_SECRET}${NC}"
+echo -e "     - Secret: ${YELLOW}${RADIUS_SECRET}${NC} ${GREEN}(from 'client radtik' - for NAS/Router)${NC}"
 echo -e "     - API Token: ${YELLOW}${API_TOKEN}${NC}"
 echo ""
