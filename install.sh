@@ -120,7 +120,7 @@ print_header "PHASE 1: Installing FreeRADIUS Core"
 ###############################################################################
 # Step 1: Install required packages
 ###############################################################################
-echo -e "${YELLOW}[1/9] Installing required packages...${NC}"
+echo -e "${YELLOW}[1/10] Installing required packages...${NC}"
 apt-get update -qq
 apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" freeradius freeradius-utils sqlite3 python3 python3-pip curl
 print_info "Packages installed"
@@ -129,7 +129,7 @@ echo ""
 ###############################################################################
 # Step 2: Install Python dependencies
 ###############################################################################
-echo -e "${YELLOW}[2/9] Installing Python dependencies...${NC}"
+echo -e "${YELLOW}[2/10] Installing Python dependencies...${NC}"
 
 echo "  → Installing Flask, Gunicorn for API server"
 pip3 install -r "$INSTALL_DIR/requirements.txt" --quiet
@@ -140,7 +140,7 @@ echo ""
 ###############################################################################
 # Step 3: Stop FreeRADIUS service
 ###############################################################################
-echo -e "${YELLOW}[3/9] Stopping FreeRADIUS service...${NC}"
+echo -e "${YELLOW}[3/10] Stopping FreeRADIUS service...${NC}"
 systemctl stop freeradius || true
 print_info "Service stopped"
 echo ""
@@ -148,7 +148,7 @@ echo ""
 ###############################################################################
 # Step 4: Copy configuration files
 ###############################################################################
-echo -e "${YELLOW}[4/9] Copying configuration files...${NC}"
+echo -e "${YELLOW}[4/10] Copying configuration files...${NC}"
 
 # Function to copy and replace files
 safe_copy() {
@@ -178,7 +178,7 @@ echo ""
 ###############################################################################
 # Step 5: Enable SQL module
 ###############################################################################
-echo -e "${YELLOW}[5/9] Enabling SQL module...${NC}"
+echo -e "${YELLOW}[5/10] Enabling SQL module...${NC}"
 
 if [ ! -L "$FREERADIUS_DIR/mods-enabled/sql" ]; then
     echo "  → Creating symlink for SQL module"
@@ -192,7 +192,7 @@ echo ""
 ###############################################################################
 # Step 6: Fix permissions
 ###############################################################################
-echo -e "${YELLOW}[6/9] Setting correct permissions...${NC}"
+echo -e "${YELLOW}[6/10] Setting correct permissions...${NC}"
 
 # Ensure freerad user exists
 if ! id -u freerad > /dev/null 2>&1; then
@@ -216,7 +216,7 @@ echo ""
 ###############################################################################
 # Step 7: Apply SQLite tuning and schema modifications
 ###############################################################################
-echo -e "${YELLOW}[7/9] Applying SQLite optimizations and schema updates...${NC}"
+echo -e "${YELLOW}[7/10] Applying SQLite optimizations and schema updates...${NC}"
 
 # Note: The database template (sqlite/radius.db) already includes:
 # - RadTik-specific columns (calling_station_id, nas_identifier, processed)
@@ -249,9 +249,36 @@ print_info "SQLite optimizations and schema updates applied"
 echo ""
 
 ###############################################################################
-# Step 8: Restart FreeRADIUS and verify
+# Step 8: Configure FreeRADIUS systemd service for SQLite write access
 ###############################################################################
-echo -e "${YELLOW}[8/9] Restarting FreeRADIUS service...${NC}"
+echo -e "${YELLOW}[8/10] Configuring FreeRADIUS systemd service for SQLite...${NC}"
+
+SYSTEMD_SERVICE_FILE="/lib/systemd/system/freeradius.service"
+SYSTEMD_OVERRIDE_DIR="/etc/systemd/system/freeradius.service.d"
+SYSTEMD_OVERRIDE_FILE="$SYSTEMD_OVERRIDE_DIR/sqlite-write-access.conf"
+
+# Create systemd override directory if it doesn't exist
+mkdir -p "$SYSTEMD_OVERRIDE_DIR"
+
+# Create override configuration to allow write access to SQLite directory
+cat > "$SYSTEMD_OVERRIDE_FILE" << 'EOF'
+[Service]
+# Allow write access to SQLite database directory
+ReadWriteDirectories=/var/log/freeradius/ /etc/freeradius/3.0/sqlite/
+EOF
+
+print_info "Created systemd override configuration at $SYSTEMD_OVERRIDE_FILE"
+
+# Reload systemd to apply changes
+systemctl daemon-reload
+
+print_info "FreeRADIUS systemd service configured for SQLite write access"
+echo ""
+
+###############################################################################
+# Step 9: Restart FreeRADIUS and verify
+###############################################################################
+echo -e "${YELLOW}[9/10] Restarting FreeRADIUS service...${NC}"
 
 systemctl restart freeradius
 
@@ -273,9 +300,9 @@ fi
 echo ""
 
 ###############################################################################
-# Step 9: Enable FreeRADIUS on boot
+# Step 10: Enable FreeRADIUS on boot
 ###############################################################################
-echo -e "${YELLOW}[9/9] Enabling FreeRADIUS on boot...${NC}"
+echo -e "${YELLOW}[10/10] Enabling FreeRADIUS on boot...${NC}"
 systemctl enable freeradius
 print_info "FreeRADIUS enabled on boot"
 echo ""
@@ -507,13 +534,16 @@ echo -e "${YELLOW}[Legacy 2/3] Setting up cron jobs...${NC}"
 CRON_FILE="/etc/cron.d/radtik-sync"
 
 cat > "$CRON_FILE" << 'EOF'
-# RadTik FreeRADIUS Legacy Synchronization Cron Jobs
+# RadTik FreeRADIUS Synchronization Cron Jobs
 
 # Check for new activations (MAC binding) every minute
 * * * * * root /usr/bin/python3 /opt/radtik-sync/check-activations.py >> /var/log/radtik-sync/activations.log 2>&1
 
 # Sync deleted users every 5 minutes
 */5 * * * * root /usr/bin/python3 /opt/radtik-sync/sync-deleted.py >> /var/log/radtik-sync/deleted.log 2>&1
+
+# Sync voucher activations to Laravel every 5 minutes
+*/5 * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
 
 EOF
 
