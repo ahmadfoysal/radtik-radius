@@ -169,6 +169,57 @@ The validator will check:
 ✓ All checks passed! Installation is complete and healthy.
 ```
 
+## 🔄 Update Management
+
+### Checking for Updates
+
+You can check for available updates in two ways:
+
+#### From RADTik Panel (Recommended)
+
+1. Navigate to **RADIUS → Servers → [Select Server] → Show**
+2. Find the "Software Version & Updates" card
+3. Click **"Check for Updates"** button
+4. If an update is available, click **"Apply Update"**
+
+The system will:
+- Create automatic backup before update
+- Download latest version from GitHub
+- Preserve your configuration (secrets, tokens)
+- Restart services automatically
+- Verify update success
+
+#### Manual Update via SSH
+
+```bash
+cd /opt/radtik-radius
+sudo bash update.sh
+```
+
+### Update Features
+
+- ✅ **One-Click Updates**: Update directly from RADTik panel
+- ✅ **Automatic Backups**: Every update creates a timestamped backup
+- ✅ **Configuration Preservation**: Your secrets and settings are kept
+- ✅ **Service Verification**: Services checked after update
+- ✅ **Rollback Support**: Clear instructions if rollback needed
+
+### Rollback to Previous Version
+
+If an update causes issues:
+
+```bash
+# List available backups
+ls -la /opt/radtik-radius-backup-*
+
+# Restore from backup (replace timestamp)
+sudo rm -rf /opt/radtik-radius
+sudo mv /opt/radtik-radius-backup-{timestamp} /opt/radtik-radius
+sudo systemctl restart radtik-radius-api freeradius
+```
+
+See [UPDATE_MANAGEMENT.md](UPDATE_MANAGEMENT.md) for detailed documentation.
+
 ## Testing After Installation
 
 ### 1. Add a Test User

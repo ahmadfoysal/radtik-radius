@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Update Management System**: Check for and apply updates directly from RADTik panel
+  - Version checking via GitHub API for latest releases
+  - One-click update with automatic backup creation
+  - Configuration preservation during updates
+  - Service health verification after updates
+  - Rollback instructions provided after each update
+- New `update.sh` script for safe system updates
+- Version display in RADIUS server management interface
+
 ### Fixed
 
 - Added systemd service override configuration to grant FreeRADIUS write access to SQLite directory

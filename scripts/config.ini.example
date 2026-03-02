@@ -18,9 +18,9 @@ auth_token = your-secure-token-here
 debug = false
 
 [laravel]
-# Laravel API endpoint (without trailing slash)
-# Used by legacy sync scripts (if any)
-api_url = https://radtik.example.com/api/radius
+# Laravel API base URL (without trailing slash)
+# The script will append the endpoint path
+api_url = https://radtik.com
 
 # API secret token for authentication
 # This should match the token configured in Laravel for this RADIUS server

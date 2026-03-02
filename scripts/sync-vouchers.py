@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 from datetime import datetime
-from functools import wraps
+from functools import wraps{%  %}
 from flask import Flask, request, jsonify
 
 # Configure logging
@@ -344,6 +344,258 @@ def delete_voucher():
         }), 500
 
 
+@app.route('/toggle/voucher-status', methods=['POST'])
+@require_auth
+def toggle_voucher_status():
+    """
+    Enable or disable a voucher in RADIUS database
+    
+    When disabling: Adds Auth-Type = Reject to block authentication
+    When enabling: Removes Auth-Type = Reject to allow authentication
+    
+    Expected JSON payload:
+    {
+        "username": "ABC12345",
+        "status": "disabled"  // or "active"
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "message": "Voucher status updated successfully",
+        "status": "disabled"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'username' not in data or 'status' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing username or status in request'
+            }), 400
+        
+        username = data['username']
+        status = data['status']
+        
+        if status not in ['active', 'disabled']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid status. Must be "active" or "disabled"'
+            }), 400
+        
+        logger.info(f"Toggling voucher status: {username} → {status}")
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if voucher exists
+        cursor.execute(
+            "SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Cleartext-Password'",
+            (username,)
+        )
+        exists = cursor.fetchone()[0] > 0
+        
+        if not exists:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'Voucher not found in RADIUS database'
+            }), 404
+        
+        if status == 'disabled':
+            # Check if Auth-Type Reject already exists
+            cursor.execute(
+                "SELECT COUNT(*) FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'",
+                (username,)
+            )
+            reject_exists = cursor.fetchone()[0] > 0
+            
+            if not reject_exists:
+                # Add Auth-Type = Reject to disable authentication
+                cursor.execute(
+                    "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                    (username, 'Auth-Type', ':=', 'Reject')
+                )
+                conn.commit()
+                logger.info(f"Voucher disabled: {username} (Auth-Type = Reject added)")
+            else:
+                logger.info(f"Voucher already disabled: {username}")
+        else:
+            # status == 'active'
+            # Remove Auth-Type = Reject to enable authentication
+            cursor.execute(
+                "DELETE FROM radcheck WHERE username = ? AND attribute = 'Auth-Type' AND value = 'Reject'",
+                (username,)
+            )
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            if deleted_count > 0:
+                logger.info(f"Voucher enabled: {username} (Auth-Type = Reject removed)")
+            else:
+                logger.info(f"Voucher already enabled: {username}")
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Voucher status updated successfully',
+            'status': status
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Toggle status endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/sync-mac-bindings', methods=['POST'])
+@require_auth
+def sync_mac_bindings():
+    """
+    Sync MAC address bindings from MikroTik to RADIUS database
+    
+    Expected JSON payload:
+    {
+        "bindings": [
+            {
+                "username": "ABC12345",
+                "mac_address": "AA:BB:CC:DD:EE:FF",
+                "profile": "default"
+            }
+        ]
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "synced": 10,
+        "updated": 5,
+        "failed": 0,
+        "errors": []
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'bindings' not in data:
+            logger.warning(f"Invalid MAC binding request from {request.remote_addr}")
+            return jsonify({
+                'success': False,
+                'error': 'Missing bindings array in request'
+            }), 400
+        
+        bindings = data['bindings']
+        
+        if not isinstance(bindings, list):
+            return jsonify({
+                'success': False,
+                'error': 'bindings must be an array'
+            }), 400
+        
+        if len(bindings) == 0:
+            return jsonify({
+                'success': True,
+                'synced': 0,
+                'updated': 0,
+                'failed': 0,
+                'errors': []
+            }), 200
+        
+        logger.info(f"Received MAC binding sync request for {len(bindings)} users from {request.remote_addr}")
+        
+        synced = 0  # New records inserted
+        updated = 0  # Existing records updated
+        failed = 0
+        errors = []
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        for binding in bindings:
+            try:
+                # Validate required fields
+                if 'username' not in binding or 'mac_address' not in binding:
+                    raise ValueError("Missing username or mac_address")
+                
+                username = binding['username']
+                mac_address = binding['mac_address']
+                
+                # Check if MAC binding already exists for this user
+                cursor.execute(
+                    "SELECT id, value FROM radcheck WHERE username = ? AND attribute = 'Calling-Station-Id'",
+                    (username,)
+                )
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # Update existing MAC binding
+                    existing_mac = existing['value']
+                    
+                    if existing_mac != mac_address:
+                        cursor.execute(
+                            "UPDATE radcheck SET value = ? WHERE username = ? AND attribute = 'Calling-Station-Id'",
+                            (mac_address, username)
+                        )
+                        updated += 1
+                        logger.info(f"Updated MAC for {username}: {existing_mac} → {mac_address}")
+                    else:
+                        logger.debug(f"MAC binding unchanged for {username}: {mac_address}")
+                        synced += 1  # Count as synced even though no change
+                else:
+                    # Insert new MAC binding
+                    cursor.execute(
+                        "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                        (username, 'Calling-Station-Id', '==', mac_address)
+                    )
+                    synced += 1
+                    logger.info(f"Added MAC binding for {username}: {mac_address}")
+                
+            except ValueError as e:
+                failed += 1
+                error_msg = f"{binding.get('username', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Validation error: {error_msg}")
+                
+            except sqlite3.Error as e:
+                failed += 1
+                error_msg = f"{username}: Database error - {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Database error for {username}: {e}")
+                
+            except Exception as e:
+                failed += 1
+                error_msg = f"{binding.get('username', 'unknown')}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"Unexpected error: {error_msg}")
+        
+        # Commit all changes
+        conn.commit()
+        conn.close()
+        
+        success = failed == 0
+        
+        logger.info(f"MAC binding sync completed: {synced} new, {updated} updated, {failed} failed")
+        
+        return jsonify({
+            'success': success,
+            'synced': synced,
+            'updated': updated,
+            'failed': failed,
+            'errors': errors
+        }), 200 if success else 207  # 207 Multi-Status for partial success
+        
+    except Exception as e:
+        logger.error(f"MAC binding sync endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/stats', methods=['GET'])
 @require_auth
 def get_stats():
@@ -355,6 +607,10 @@ def get_stats():
         # Count unique users
         cursor.execute("SELECT COUNT(DISTINCT username) FROM radcheck WHERE attribute = 'Cleartext-Password'")
         total_users = cursor.fetchone()[0]
+        
+        # Count MAC bindings
+        cursor.execute("SELECT COUNT(*) FROM radcheck WHERE attribute = 'Calling-Station-Id'")
+        mac_bindings_count = cursor.fetchone()[0]
         
         # Count total records
         cursor.execute("SELECT COUNT(*) FROM radcheck")
@@ -371,6 +627,7 @@ def get_stats():
         
         return jsonify({
             'total_users': total_users,
+            'mac_bindings': mac_bindings_count,
             'radcheck_records': radcheck_count,
             'radreply_records': radreply_count,
             'nas_identifiers': nas_identifiers,
@@ -393,6 +650,7 @@ def not_found(e):
         'available_endpoints': [
             'GET /health',
             'POST /sync/vouchers',
+            'POST /sync-mac-bindings',
             'DELETE /delete/voucher',
             'GET /stats'
         ]
@@ -418,10 +676,11 @@ def main():
     logger.info(f"Listening on: {API_HOST}:{API_PORT}")
     logger.info(f"Debug mode: {DEBUG_MODE}")
     logger.info("Endpoints:")
-    logger.info("  - GET  /health          (Health check)")
-    logger.info("  - POST /sync/vouchers   (Sync vouchers)")
-    logger.info("  - DELETE /delete/voucher (Delete voucher)")
-    logger.info("  - GET  /stats           (Database stats)")
+    logger.info("  - GET  /health              (Health check)")
+    logger.info("  - POST /sync/vouchers       (Sync vouchers)")
+    logger.info("  - POST /sync-mac-bindings   (Sync MAC bindings)")
+    logger.info("  - DELETE /delete/voucher    (Delete voucher)")
+    logger.info("  - GET  /stats               (Database stats)")
     logger.info("=" * 60)
     
     # Run Flask app
