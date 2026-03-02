@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 from datetime import datetime
-from functools import wraps{%  %}
+from functools import wraps
 from flask import Flask, request, jsonify
 
 # Configure logging
