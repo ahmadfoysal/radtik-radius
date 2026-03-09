@@ -24,10 +24,42 @@ FreeRADIUS Database
 
 - **sync-vouchers.py**: Flask API server that receives voucher sync requests from Laravel and inserts them into FreeRADIUS database (radcheck/radreply tables)
 
-### Legacy Scripts (Optional)
+### Synchronization Scripts (Cron Jobs)
 
-- **check-activations.py**: Monitors radpostauth for new activations and updates Laravel with MAC addresses
-- **sync-deleted.py**: Removes deleted vouchers from FreeRADIUS database
+- **activation-sync.py**: Monitors radpostauth for new authentications and syncs activation data back to Laravel (runs every 5 minutes)
+- **cleanup-orphaned.py**: Removes orphaned vouchers from RADIUS database that don't exist in RADTik (runs every 6 hours)
+
+#### Orphaned Voucher Cleanup
+
+The cleanup script ensures RADIUS database stays in sync with RADTik (source of truth):
+
+**How it works:**
+1. Queries all usernames from RADIUS radcheck table
+2. Sends batches to Laravel API endpoint `/api/radius/verify-vouchers`
+3. Laravel returns which vouchers exist in its database
+4. Deletes vouchers from RADIUS that don't exist in RADTik
+
+**Why this is needed:**
+- Manual deletions from RADIUS database
+- Database inconsistencies during sync failures
+- Orphaned test vouchers
+- Keeps RADIUS database clean and accurate
+
+**Configuration options** (in `config.ini`):
+```ini
+[cleanup]
+batch_size = 1000    # How many usernames to verify per request
+dry_run = false      # Set to true to test without actually deleting
+```
+
+**Manual execution:**
+```bash
+# Test without deleting (dry run)
+sudo python3 /opt/radtik-radius/scripts/cleanup-orphaned.py
+
+# View log
+tail -f /var/log/radtik-cleanup-orphaned.log
+```
 
 ## Configuration
 

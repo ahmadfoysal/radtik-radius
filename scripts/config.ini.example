@@ -35,3 +35,12 @@ db_path = /var/lib/freeradius/radius.db
 voucher_sync_minutes = 2
 activation_check_minutes = 1
 deleted_sync_minutes = 5
+
+[cleanup]
+# Orphaned voucher cleanup settings
+# Batch size for verification requests (max 5000, recommended 1000)
+batch_size = 1000
+
+# Dry run mode - if true, will log what would be deleted without actually deleting
+# Set to false in production after testing
+dry_run = false

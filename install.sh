@@ -6,8 +6,8 @@
 # 
 # This script installs:
 # 1. FreeRADIUS with SQLite backend
-# 2. Flask API Server for Laravel integration
-# 3. Legacy cron scripts for activation monitoring
+# 2. Flask API Server for push-based Laravel integration (Laravel → RADIUS)
+# 3. Activation sync cron job (RADIUS → Laravel)
 ###############################################################################
 
 set -e  # Exit on any error
@@ -33,7 +33,6 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 INSTALL_DIR="/opt/radtik-radius"
 FREERADIUS_DIR="/etc/freeradius/3.0"
 SCRIPTS_DIR="$INSTALL_DIR/scripts"
-SYNC_DIR="/opt/radtik-sync"
 API_SERVICE_NAME="radtik-radius-api"
 API_SERVICE_FILE="/etc/systemd/system/${API_SERVICE_NAME}.service"
 
@@ -79,8 +78,9 @@ echo -e "${NC}"
 echo ""
 echo "This installer will set up:"
 echo "  ${GREEN}✓${NC} FreeRADIUS 3.0 with SQLite backend"
-echo "  ${GREEN}✓${NC} Flask API Server for real-time voucher sync"
-echo "  ${GREEN}✓${NC} Legacy cron scripts for activation monitoring"
+echo "  ${GREEN}✓${NC} Flask API Server for push-based voucher sync"
+echo "  ${GREEN}✓${NC} Activation sync cron job (RADIUS → Laravel)"
+echo "  ${GREEN}✓${NC} Cleanup orphaned vouchers cron job (runs every 6 hours)"
 echo "  ${GREEN}✓${NC} Optimized database with indexes"
 echo "  ${GREEN}✓${NC} Firewall configuration (port 5000)"
 echo ""
@@ -466,101 +466,77 @@ echo ""
 print_header "✓ API Server Installation Complete"
 
 ###############################################################################
-# PHASE 3: Legacy Sync Scripts Installation
+# PHASE 3: Activation Sync Cron Setup
 ###############################################################################
 
-print_header "PHASE 3: Installing Legacy Sync Scripts"
+print_header "PHASE 3: Setting up Synchronization Cron Jobs"
 
 ###############################################################################
-# Legacy Step 1: Setup sync directory
+# Step 1: Verify Python scripts exist
 ###############################################################################
-echo -e "${YELLOW}[Legacy 1/3] Setting up sync directory...${NC}"
+echo -e "${YELLOW}[Sync 1/3] Verifying Python scripts...${NC}"
 
-# Create sync directory if it doesn't exist
-mkdir -p "$SYNC_DIR"
-
-# Copy Python scripts if they exist
-if [ -f "$SCRIPTS_DIR/check-activations.py" ]; then
-    cp "$SCRIPTS_DIR/check-activations.py" "$SYNC_DIR/"
-    print_info "Copied check-activations.py"
-else
-    print_warning "check-activations.py not found, skipping"
+if [ ! -f "$SCRIPTS_DIR/activation-sync.py" ]; then
+    print_error "activation-sync.py not found in $SCRIPTS_DIR"
+    exit 1
 fi
 
-if [ -f "$SCRIPTS_DIR/sync-deleted.py" ]; then
-    cp "$SCRIPTS_DIR/sync-deleted.py" "$SYNC_DIR/"
-    print_info "Copied sync-deleted.py"
-else
-    print_warning "sync-deleted.py not found, skipping"
-fi
-
-# Copy config example
-if [ -f "$SCRIPTS_DIR/config.ini.example" ]; then
-    cp "$SCRIPTS_DIR/config.ini.example" "$SYNC_DIR/"
-    print_info "Copied config.ini.example"
-else
-    print_warning "config.ini.example not found"
-fi
-
-# Create config.ini if it doesn't exist
-if [ ! -f "$SYNC_DIR/config.ini" ]; then
-    if [ -f "$SYNC_DIR/config.ini.example" ]; then
-        cp "$SYNC_DIR/config.ini.example" "$SYNC_DIR/config.ini"
-        print_info "Configuration template created"
-    else
-        print_warning "Cannot create config.ini (template missing)"
-    fi
-else
-    print_info "Configuration already exists"
+if [ ! -f "$SCRIPTS_DIR/cleanup-orphaned.py" ]; then
+    print_error "cleanup-orphaned.py not found in $SCRIPTS_DIR"
+    exit 1
 fi
 
 # Make scripts executable
-chmod +x "$SYNC_DIR"/*.py 2>/dev/null || true
+chmod +x "$SCRIPTS_DIR/activation-sync.py"
+chmod +x "$SCRIPTS_DIR/cleanup-orphaned.py"
 
-# Create log directory
-mkdir -p /var/log/radtik-sync
-touch /var/log/radtik-sync/activations.log
-touch /var/log/radtik-sync/deleted.log
-chmod 644 /var/log/radtik-sync/*.log 2>/dev/null || true
+# Create log files
+touch /var/log/radtik-activation-sync.log
+touch /var/log/radtik-cleanup-orphaned.log
+chmod 644 /var/log/radtik-activation-sync.log
+chmod 644 /var/log/radtik-cleanup-orphaned.log
 
-print_info "Sync directory configured"
+print_info "Python scripts verified and configured"
 echo ""
 
 ###############################################################################
-# Legacy Step 2: Setup cron jobs
+# Step 2: Setup activation sync cron job
 ###############################################################################
-echo -e "${YELLOW}[Legacy 2/3] Setting up cron jobs...${NC}"
+echo -e "${YELLOW}[Sync 2/3] Setting up cron job for activation sync...${NC}"
 
 CRON_FILE="/etc/cron.d/radtik-sync"
 
 cat > "$CRON_FILE" << 'EOF'
-# RadTik FreeRADIUS Synchronization Cron Jobs
-
-# Check for new activations (MAC binding) every minute
-* * * * * root /usr/bin/python3 /opt/radtik-sync/check-activations.py >> /var/log/radtik-sync/activations.log 2>&1
-
-# Sync deleted users every 5 minutes
-*/5 * * * * root /usr/bin/python3 /opt/radtik-sync/sync-deleted.py >> /var/log/radtik-sync/deleted.log 2>&1
+# RadTik FreeRADIUS Synchronization Jobs
 
 # Sync voucher activations to Laravel every 5 minutes
+# Monitors radpostauth for new authentications and updates Laravel
 */5 * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
+
+# Cleanup orphaned vouchers every 6 hours (at minute 15)
+# Removes vouchers from RADIUS that don't exist in RADTik database
+15 */6 * * * root /usr/bin/python3 /opt/radtik-radius/scripts/cleanup-orphaned.py >> /var/log/radtik-cleanup-orphaned.log 2>&1
 
 EOF
 
 chmod 644 "$CRON_FILE"
 
-print_info "Cron jobs installed"
+print_info "Activation sync cron job installed: runs every 5 minutes"
+print_info "Cleanup orphaned cron job installed: runs every 6 hours"
 echo ""
 
 ###############################################################################
-# Legacy Step 3: Configuration reminder
+# Step 3: Configuration reminder
 ###############################################################################
-echo -e "${YELLOW}[Legacy 3/3] Configuration required...${NC}"
+echo -e "${YELLOW}[Sync 3/3] Configuration requirements...${NC}"
 
-print_warning "Edit $SYNC_DIR/config.ini to set Laravel API URL and token"
+print_warning "Edit $SCRIPTS_DIR/config.ini to set Laravel API URL"
+echo "  Required settings:"
+echo "    [laravel] api_url = https://your-radtik-domain.com"
+echo "    [api] auth_token = (same as RADIUS server token in Laravel)"
 echo ""
 
-print_header "✓ Legacy Sync Scripts Installation Complete"
+print_header "✓ Synchronization Setup Complete"
 
 ###############################################################################
 # Final Verification
@@ -640,13 +616,20 @@ echo "  5. Link router to RADIUS server"
 echo "  6. Start queue worker: php artisan queue:work"
 echo ""
 
-echo -e "${GREEN}✓ Legacy sync scripts installed${NC}"
-echo "  • Directory: $SYNC_DIR"
-echo "  • Cron jobs: /etc/cron.d/radtik-sync"
+echo -e "${GREEN}✓ Synchronization cron jobs installed${NC}"
+echo "  • Script: $SCRIPTS_DIR/activation-sync.py"
+echo "  • Cron file: /etc/cron.d/radtik-sync"
+echo "  • Activation sync: runs every 5 minutes"
+echo "  • Log: /var/log/radtik-activation-sync.log"
 echo ""
-echo -e "${YELLOW}TODO:${NC} Configure Laravel API connection:"
-echo "  sudo nano $SYNC_DIR/config.ini"
-echo "  Set api_url and api_secret from Laravel"
+echo "  • Script: $SCRIPTS_DIR/cleanup-orphaned.py"
+echo "  • Cleanup orphaned: runs every 6 hours"
+echo "  • Log: /var/log/radtik-cleanup-orphaned.log"
+echo ""
+echo -e "${YELLOW}TODO:${NC} Configure Laravel API URL in config:"
+echo "  sudo nano $SCRIPTS_DIR/config.ini"
+echo "  Set [laravel] api_url to your Laravel instance"
+echo "  Set [api] auth_token (same as RADIUS server token in Laravel)"
 echo ""
 
 echo -e "${BLUE}Quick Tests:${NC}"
