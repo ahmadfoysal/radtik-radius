@@ -85,16 +85,15 @@ def fetch_unique_activations_last_24h() -> List[Dict]:
         query = """
             SELECT 
                 username,
-                nasidentifier,
-                nasipaddress,
-                callingstationid,
+                nas_identifier,
+                calling_station_id,
                 MIN(authdate) as first_auth_date
             FROM radpostauth
             WHERE reply = 'Access-Accept'
               AND authdate > ?
             GROUP BY username, 
-                     COALESCE(nasidentifier, nasipaddress),
-                     callingstationid
+                     nas_identifier,
+                     calling_station_id
             ORDER BY first_auth_date ASC
         """
         
@@ -107,8 +106,8 @@ def fetch_unique_activations_last_24h() -> List[Dict]:
         for row in rows:
             activations.append({
                 'username': row['username'],
-                'nas_identifier': row['nasidentifier'] or row['nasipaddress'],
-                'calling_station_id': row['callingstationid'],
+                'nas_identifier': row['nas_identifier'],
+                'calling_station_id': row['calling_station_id'],
                 'authenticated_at': row['first_auth_date']
             })
         
