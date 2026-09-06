@@ -315,6 +315,10 @@ def delete_voucher():
         cursor.execute("DELETE FROM radreply WHERE username = ?", (username,))
         radreply_deleted = cursor.rowcount
         
+        # Delete from radpostauth
+        cursor.execute("DELETE FROM radpostauth WHERE username = ?", (username,))
+        radpostauth_deleted = cursor.rowcount
+        
         conn.commit()
         conn.close()
         
@@ -325,19 +329,58 @@ def delete_voucher():
                 'error': 'Voucher not found'
             }), 404
         
-        logger.info(f"Voucher deleted: {username} ({radcheck_deleted} radcheck, {radreply_deleted} radreply)")
+        logger.info(f"Voucher deleted: {username} ({radcheck_deleted} radcheck, {radreply_deleted} radreply, {radpostauth_deleted} radpostauth)")
         
         return jsonify({
             'success': True,
             'message': 'Voucher deleted successfully',
             'deleted': {
                 'radcheck': radcheck_deleted,
-                'radreply': radreply_deleted
+                'radreply': radreply_deleted,
+                'radpostauth': radpostauth_deleted
             }
         }), 200
         
     except Exception as e:
         logger.error(f"Delete endpoint error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/reset/voucher', methods=['POST'])
+@require_auth
+def reset_voucher():
+    """Remove a voucher's Calling-Station-Id binding without deleting it."""
+    try:
+        data = request.get_json()
+        if not data or 'username' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Missing username in request'
+            }), 400
+
+        username = data['username']
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM radcheck WHERE username = ? AND attribute = 'Calling-Station-Id'",
+            (username,)
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Reset MAC binding for {username}: {deleted} row(s) removed")
+
+        return jsonify({
+            'success': True,
+            'message': 'Voucher MAC binding reset successfully',
+            'deleted': deleted,
+        }), 200
+    except Exception as e:
+        logger.error(f"Reset voucher endpoint error: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
