@@ -163,6 +163,13 @@ chmod +x "$INSTALL_DIR/install.sh"
 chmod +x "$INSTALL_DIR/update.sh"
 chmod +x "$INSTALL_DIR/scripts/"*.py
 print_info "Permissions set"
+
+# Activation sync runs every minute now (it also writes voucher expiry into RADIUS, #32).
+# Older installs have it every 5 minutes; the cron file is not part of the update files.
+if [ -f /etc/cron.d/radtik-sync ] && grep -q '^\*/5 .*activation-sync.py' /etc/cron.d/radtik-sync; then
+    sed -i 's#^\*/5 \(.*activation-sync.py\)#* \1#' /etc/cron.d/radtik-sync
+    print_info "Activation sync cron changed to every minute"
+fi
 echo ""
 
 ###############################################################################
@@ -209,6 +216,12 @@ echo ""
 ###############################################################################
 
 print_header "PHASE 6: Starting Services"
+
+# TLS for the API (#33): create the certificate if missing and refresh the
+# systemd unit so gunicorn serves HTTPS.
+bash /opt/radtik-radius/scripts/ensure-api-tls.sh freerad
+cp /opt/radtik-radius/radtik-radius-api.service /etc/systemd/system/radtik-radius-api.service
+systemctl daemon-reload
 
 echo -e "${YELLOW}Starting services...${NC}"
 systemctl start radtik-radius-api

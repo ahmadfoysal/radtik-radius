@@ -2,7 +2,7 @@
 
 ## Overview
 
-This system automatically syncs voucher activation data from FreeRADIUS to Laravel every 5 minutes using a cron job.
+This system automatically syncs voucher activation data from FreeRADIUS to Laravel every minute using a cron job.
 
 ## Architecture
 
@@ -73,7 +73,7 @@ The `ProcessVoucherActivations` job updates vouchers with these rules:
 The cron job is automatically configured by `install.sh`:
 
 ```bash
-*/5 * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
+* * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
 ```
 
 **Schedule**: Every 5 minutes  

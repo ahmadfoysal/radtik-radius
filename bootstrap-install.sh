@@ -197,12 +197,12 @@ echo -e "  • API Token: ${YELLOW}${API_TOKEN}${NC}"
 echo -e "  • Service: systemctl status radtik-radius-api"
 echo ""
 echo -e "${BLUE}Quick Test:${NC}"
-echo -e "  curl -H 'Authorization: Bearer ${API_TOKEN}' http://localhost:5000/health"
+echo -e "  curl -k -H 'Authorization: Bearer ${API_TOKEN}' https://localhost:5000/health"
 echo ""
 
 # Test API connection
 echo -e "${YELLOW}Testing API connection...${NC}"
-API_RESPONSE=$(curl -s -H "Authorization: Bearer ${API_TOKEN}" http://localhost:5000/health 2>/dev/null)
+API_RESPONSE=$(curl -sk -H "Authorization: Bearer ${API_TOKEN}" https://localhost:5000/health 2>/dev/null)
 if echo "$API_RESPONSE" | grep -q "status"; then
     echo -e "${GREEN}✓${NC} API Server responding correctly"
 else

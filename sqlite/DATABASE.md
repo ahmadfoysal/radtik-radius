@@ -50,7 +50,7 @@ Stores authentication attempts for auditing and MAC address tracking.
 **Columns:**
 - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
 - `username` (varchar(64))
-- `pass` (varchar(64)) - Password attempt
+- `pass` (varchar(64)) - always empty: the password a client sent is never stored (it was a voucher code in clear text, also for wrong guesses)
 - `reply` (varchar(32)) - 'Access-Accept' or 'Access-Reject'
 - `authdate` (timestamp)
 - `class` (varchar(64))

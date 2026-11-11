@@ -164,6 +164,18 @@ safe_copy() {
 
 # Copy configuration files
 safe_copy "$INSTALL_DIR/clients.conf" "$FREERADIUS_DIR/clients.conf"
+
+# Unique RADIUS shared secret for this server (#24).
+# Only replaces the placeholder, so re-running the installer keeps a secret
+# that was already set (e.g. pushed from the panel).
+RADIUS_SECRET=$(openssl rand -hex 24)
+if grep -q "__RADTIK_SHARED_SECRET__" "$FREERADIUS_DIR/clients.conf"; then
+    sed -i "s/__RADTIK_SHARED_SECRET__/$RADIUS_SECRET/" "$FREERADIUS_DIR/clients.conf"
+    sed -i "s/__RADTIK_SHARED_SECRET__/$RADIUS_SECRET/" "$INSTALL_DIR/clients.conf"
+    echo "  → Generated a unique RADIUS shared secret"
+else
+    RADIUS_SECRET="(unchanged - kept the existing secret)"
+fi
 safe_copy "$INSTALL_DIR/mods-available/sql" "$FREERADIUS_DIR/mods-available/sql"
 safe_copy "$INSTALL_DIR/mods-config/sql/main/sqlite/queries.conf" "$FREERADIUS_DIR/mods-config/sql/main/sqlite/queries.conf"
 safe_copy "$INSTALL_DIR/sites-enabled/default" "$FREERADIUS_DIR/sites-enabled/default"
@@ -393,6 +405,10 @@ if [ ! -f "$INSTALL_DIR/radtik-radius-api.service" ]; then
     exit 1
 fi
 
+# TLS certificate for the API (#33). The equivalent of:
+#   openssl req -x509 ... -keyout /opt/radtik-radius/tls/api.key -out /opt/radtik-radius/tls/api.crt
+bash "$INSTALL_DIR/scripts/ensure-api-tls.sh" freerad
+
 # Copy service file (paths are already correct in the file)
 cp "$INSTALL_DIR/radtik-radius-api.service" "$API_SERVICE_FILE"
 
@@ -437,7 +453,7 @@ if systemctl is-active --quiet $API_SERVICE_NAME; then
     
     # Test health endpoint
     echo "  → Testing API health endpoint"
-    RESPONSE=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
+    RESPONSE=$(curl -sk -H "Authorization: Bearer $API_TOKEN" https://localhost:5000/health 2>/dev/null || echo "failed")
     
     if [[ $RESPONSE == *"healthy"* ]]; then
         print_info "API server is healthy and responding"
@@ -481,20 +497,12 @@ if [ ! -f "$SCRIPTS_DIR/activation-sync.py" ]; then
     exit 1
 fi
 
-if [ ! -f "$SCRIPTS_DIR/cleanup-orphaned.py" ]; then
-    print_error "cleanup-orphaned.py not found in $SCRIPTS_DIR"
-    exit 1
-fi
-
 # Make scripts executable
 chmod +x "$SCRIPTS_DIR/activation-sync.py"
-chmod +x "$SCRIPTS_DIR/cleanup-orphaned.py"
 
 # Create log files
 touch /var/log/radtik-activation-sync.log
-touch /var/log/radtik-cleanup-orphaned.log
 chmod 644 /var/log/radtik-activation-sync.log
-chmod 644 /var/log/radtik-cleanup-orphaned.log
 
 print_info "Python scripts verified and configured"
 echo ""
@@ -509,19 +517,17 @@ CRON_FILE="/etc/cron.d/radtik-sync"
 cat > "$CRON_FILE" << 'EOF'
 # RadTik FreeRADIUS Synchronization Jobs
 
-# Sync voucher activations to Laravel every 5 minutes
+# Sync voucher activations to Laravel every minute (also writes each voucher's expiry into RADIUS)
 # Monitors radpostauth for new authentications and updates Laravel
-*/5 * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
+* * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
 
-# Cleanup orphaned vouchers every 6 hours (at minute 15)
-# Removes vouchers from RADIUS that don't exist in RADTik database
-15 */6 * * * root /usr/bin/python3 /opt/radtik-radius/scripts/cleanup-orphaned.py >> /var/log/radtik-cleanup-orphaned.log 2>&1
+# (Comparing RADIUS with the database is done by Laravel itself: `php artisan radius:reconcile`)
 
 EOF
 
 chmod 644 "$CRON_FILE"
 
-print_info "Activation sync cron job installed: runs every 5 minutes"
+print_info "Activation sync cron job installed: runs every minute"
 print_info "Cleanup orphaned cron job installed: runs every 6 hours"
 echo ""
 
@@ -559,7 +565,7 @@ if systemctl is-active --quiet $API_SERVICE_NAME; then
     echo -e "${GREEN}✓${NC} API Server is running"
     
     # Test API endpoint
-    API_TEST=$(curl -s -H "Authorization: Bearer $API_TOKEN" http://localhost:5000/health 2>/dev/null || echo "failed")
+    API_TEST=$(curl -sk -H "Authorization: Bearer $API_TOKEN" https://localhost:5000/health 2>/dev/null || echo "failed")
     if [[ $API_TEST == *"healthy"* ]]; then
         echo -e "${GREEN}✓${NC} API health check passed"
     else
@@ -600,12 +606,15 @@ echo "  • Service: systemctl status freeradius"
 echo ""
 
 echo -e "${GREEN}✓ API Server installed and running${NC}"
-echo "  • Endpoint: http://localhost:5000"
+echo "  • Endpoint: https://<this-server>:5000 (self-signed; pin it in the panel with \"Fetch API certificate\")"
 echo "  • Service: systemctl status $API_SERVICE_NAME"
 echo "  • Logs: journalctl -u $API_SERVICE_NAME -f"
 echo ""
 echo -e "${YELLOW}API Authentication Token:${NC}"
 echo -e "${GREEN}$API_TOKEN${NC}"
+echo ""
+echo -e "${YELLOW}RADIUS Shared Secret (MikroTik /radius secret):${NC}"
+echo -e "${GREEN}$RADIUS_SECRET${NC}"
 echo ""
 echo -e "${YELLOW}IMPORTANT:${NC} Add this token to Laravel RadiusServer configuration:"
 echo "  1. Login to Laravel admin panel"
@@ -619,12 +628,8 @@ echo ""
 echo -e "${GREEN}✓ Synchronization cron jobs installed${NC}"
 echo "  • Script: $SCRIPTS_DIR/activation-sync.py"
 echo "  • Cron file: /etc/cron.d/radtik-sync"
-echo "  • Activation sync: runs every 5 minutes"
+echo "  • Activation sync: runs every minute"
 echo "  • Log: /var/log/radtik-activation-sync.log"
-echo ""
-echo "  • Script: $SCRIPTS_DIR/cleanup-orphaned.py"
-echo "  • Cleanup orphaned: runs every 6 hours"
-echo "  • Log: /var/log/radtik-cleanup-orphaned.log"
 echo ""
 echo -e "${YELLOW}TODO:${NC} Configure Laravel API URL in config:"
 echo "  sudo nano $SCRIPTS_DIR/config.ini"
@@ -636,8 +641,8 @@ echo -e "${BLUE}Quick Tests:${NC}"
 echo "  • Test FreeRADIUS: radtest testuser testpass localhost 0 testing123"
 echo "  • View logs: tail -f /var/log/freeradius/radius.log"
 echo "  • Debug mode: sudo freeradius -X"
-echo "  • Test API health: curl -H 'Authorization: Bearer $API_TOKEN' http://localhost:5000/health"
-echo "  • View API stats: curl -H 'Authorization: Bearer $API_TOKEN' http://localhost:5000/stats"
+echo "  • Test API health: curl -k -H 'Authorization: Bearer $API_TOKEN' https://localhost:5000/health"
+echo "  • View API stats: curl -k -H 'Authorization: Bearer $API_TOKEN' https://localhost:5000/stats"
 
 echo ""
 echo -e "${BLUE}Documentation:${NC}"

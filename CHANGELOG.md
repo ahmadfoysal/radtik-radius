@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The post-auth query no longer stores the password the client sent in `radpostauth.pass` (voucher codes in clear text, including wrong guesses). The column stays (schema) but is empty.
+
 ### Added
+
+- Voucher expiry is enforced by RADIUS itself: `activation-sync.py` writes `Expiration` (converted to the server's local time zone) into `radcheck`; FreeRADIUS rejects after it and sets `Session-Timeout` to the time left. `/sync/vouchers` accepts `expiration` per voucher.
+- `activation-sync.py` runs every minute and only sends activations Laravel has not confirmed yet (state file `.activation-sync.state`, 10 minutes overlap). `update.sh` changes an existing 5-minute cron to every minute. Activation timestamps are now sent as UTC (they used to be the server's local time, which Laravel read as UTC).
+- `/sync/vouchers`: `overwrite`, `mac_address`, `disabled`; `GET /vouchers/usernames`; `POST /delete/vouchers` (batch).
 
 - **Update Management System**: Check for and apply updates directly from RADTik panel
   - Version checking via GitHub API for latest releases

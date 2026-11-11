@@ -13,6 +13,8 @@ Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 # Use gunicorn for production deployment (recommended)
 ExecStart=/usr/local/bin/gunicorn \
     --bind 0.0.0.0:5000 \
+    --certfile /opt/radtik-radius/tls/api.crt \
+    --keyfile /opt/radtik-radius/tls/api.key \
     --workers 4 \
     --timeout 30 \
     --access-logfile /var/log/radtik-radius-access.log \

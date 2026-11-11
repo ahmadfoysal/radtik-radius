@@ -26,40 +26,9 @@ FreeRADIUS Database
 
 ### Synchronization Scripts (Cron Jobs)
 
-- **activation-sync.py**: Monitors radpostauth for new authentications and syncs activation data back to Laravel (runs every 5 minutes)
-- **cleanup-orphaned.py**: Removes orphaned vouchers from RADIUS database that don't exist in RADTik (runs every 6 hours)
+- **activation-sync.py**: Monitors radpostauth for new authentications and syncs activation data back to Laravel (runs every minute). It also writes each voucher's expiry into RADIUS (`Expiration`, in this server's local time), so FreeRADIUS rejects expired vouchers by itself and gives sessions a matching `Session-Timeout`
 
-#### Orphaned Voucher Cleanup
-
-The cleanup script ensures RADIUS database stays in sync with RADTik (source of truth):
-
-**How it works:**
-1. Queries all usernames from RADIUS radcheck table
-2. Sends batches to Laravel API endpoint `/api/radius/verify-vouchers`
-3. Laravel returns which vouchers exist in its database
-4. Deletes vouchers from RADIUS that don't exist in RADTik
-
-**Why this is needed:**
-- Manual deletions from RADIUS database
-- Database inconsistencies during sync failures
-- Orphaned test vouchers
-- Keeps RADIUS database clean and accurate
-
-**Configuration options** (in `config.ini`):
-```ini
-[cleanup]
-batch_size = 1000    # How many usernames to verify per request
-dry_run = false      # Set to true to test without actually deleting
-```
-
-**Manual execution:**
-```bash
-# Test without deleting (dry run)
-sudo python3 /opt/radtik-radius/scripts/cleanup-orphaned.py
-
-# View log
-tail -f /var/log/radtik-cleanup-orphaned.log
-```
+There is no cleanup script on the RADIUS server any more: Laravel compares the RADIUS user list (`GET /vouchers/usernames`) with its database every night (`php artisan radius:reconcile`), restores missing vouchers and, if the owner switches it on, removes users that exist only in RADIUS. After a rebuild use "Resync from database" on the server page.
 
 ## Configuration
 

@@ -60,6 +60,28 @@ if not os.path.exists(DB_PATH):
     sys.exit(1)
 
 
+_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+
+def radius_expiration_value(iso_utc: str) -> str:
+    """
+    "2026-11-12T10:00:00Z" (UTC, as sent by Laravel) -> "Nov 12 2026 16:00:00" in THIS server's
+    local clock. FreeRADIUS reads the Expiration attribute in the server's local time zone (checked
+    with FreeRADIUS 3.2: the same text is 6 hours off on a UTC+6 server), so the value must be
+    converted. Month names are English whatever the server locale is.
+    """
+    from datetime import timezone
+    text = str(iso_utc).strip()
+    if text.endswith('Z'):
+        text = text[:-1] + '+00:00'
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    local = moment.astimezone()  # server local time zone
+    return f"{_MONTHS[local.month - 1]} {local.day:02d} {local.year} {local:%H:%M:%S}"
+
+
+
 def get_db_connection():
     """Get SQLite database connection"""
     try:
@@ -176,6 +198,10 @@ def sync_vouchers():
         
         logger.info(f"Received sync request for {len(vouchers)} vouchers from {request.remote_addr}")
         
+        # overwrite=true (a rebuilt server is being refilled from the database): what is in the
+        # database wins, so an existing user is replaced instead of reported as a conflict.
+        overwrite = bool(data.get('overwrite', False))
+
         synced = 0
         failed = 0
         errors = []
@@ -196,6 +222,22 @@ def sync_vouchers():
                 password = voucher['password']
                 rate_limit = voucher['mikrotik_rate_limit']
                 nas_identifier = voucher['nas_identifier']
+                mac_address = voucher.get('mac_address')   # optional: MAC binding to restore
+                disabled = bool(voucher.get('disabled'))   # optional: voucher is disabled
+                expiration = voucher.get('expiration')     # optional: UTC moment RADIUS must reject after
+                expiration_value = radius_expiration_value(expiration) if expiration else None  # ValueError if malformed
+
+                if overwrite:
+                    # Replace everything RADTik manages for this user, then write it again below.
+                    # A MAC binding that RADIUS has but the database does not know yet (first login
+                    # not reported yet) is kept; the database value replaces it only when it has one.
+                    managed = ['Cleartext-Password', 'NAS-Identifier', 'Expiration'] + (['Calling-Station-Id'] if mac_address else [])
+                    cursor.execute(
+                        "DELETE FROM radcheck WHERE username = ? AND (attribute IN (%s) "
+                        "OR (attribute = 'Auth-Type' AND value = 'Reject'))" % ','.join('?' * len(managed)),
+                        (username, *managed)
+                    )
+                    cursor.execute("DELETE FROM radreply WHERE username = ? AND attribute = 'Mikrotik-Rate-Limit'", (username,))
                 
                 # Check if voucher already exists
                 cursor.execute(
@@ -205,9 +247,21 @@ def sync_vouchers():
                 exists = cursor.fetchone()[0] > 0
                 
                 if exists:
-                    logger.warning(f"Voucher {username} already exists, skipping")
-                    errors.append(f"{username}: Already exists")
-                    failed += 1
+                    # Idempotent: the same voucher sent again (e.g. a retry after a lost
+                    # answer) is a success. A different password or NAS is a real conflict.
+                    cursor.execute(
+                        "SELECT attribute, value FROM radcheck WHERE username = ? "
+                        "AND attribute IN ('Cleartext-Password', 'NAS-Identifier')",
+                        (username,)
+                    )
+                    current = {row[0]: row[1] for row in cursor.fetchall()}
+                    if current.get('Cleartext-Password') == password and current.get('NAS-Identifier') == nas_identifier:
+                        synced += 1
+                        logger.info(f"Voucher {username} already exists with the same data, treated as synced")
+                    else:
+                        logger.warning(f"Voucher {username} already exists with different credentials")
+                        errors.append(f"{username}: Already exists with different credentials")
+                        failed += 1
                     continue
                 
                 # Insert into radcheck table (2 rows per voucher)
@@ -223,6 +277,23 @@ def sync_vouchers():
                     (username, 'NAS-Identifier', '==', nas_identifier)
                 )
                 
+                # Optional state that lives in RADIUS too (restored after a rebuild)
+                if mac_address:
+                    cursor.execute(
+                        "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                        (username, 'Calling-Station-Id', '==', mac_address)
+                    )
+                if disabled:
+                    cursor.execute(
+                        "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                        (username, 'Auth-Type', ':=', 'Reject')
+                    )
+                if expiration_value:
+                    cursor.execute(
+                        "INSERT INTO radcheck (username, attribute, op, value) VALUES (?, ?, ?, ?)",
+                        (username, 'Expiration', ':=', expiration_value)
+                    )
+
                 # Insert into radreply table (1 row per voucher)
                 # MikroTik rate limit
                 cursor.execute(
@@ -347,6 +418,124 @@ def delete_voucher():
             'success': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/vouchers/usernames', methods=['GET'])
+@require_auth
+def list_usernames():
+    """
+    List the usernames this RADIUS server has, page by page (keyset paging), so Laravel can
+    compare them with its database (reconcile, #78).
+
+    Query: ?after=<last username of the previous page>&limit=5000 (max 5000)
+
+    Returns:
+    {"success": true, "usernames": ["A", "B"], "next": "B"}     "next" is null on the last page
+    """
+    after = request.args.get('after', '')
+    try:
+        limit = max(1, min(int(request.args.get('limit', 5000)), 5000))
+    except ValueError:
+        return jsonify({'success': False, 'error': 'limit must be a number'}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT DISTINCT username FROM radcheck WHERE attribute = 'Cleartext-Password' AND username > ? "
+            "ORDER BY username LIMIT ?",
+            (after, limit + 1)
+        )
+        rows = [row[0] for row in cursor.fetchall()]
+        has_more = len(rows) > limit
+        usernames = rows[:limit]
+
+        return jsonify({
+            'success': True,
+            'usernames': usernames,
+            'next': usernames[-1] if has_more else None
+        }), 200
+    except Exception as e:
+        logger.error(f"List usernames error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@app.route('/delete/vouchers', methods=['POST'])
+@require_auth
+def delete_vouchers():
+    """
+    Delete many vouchers from the RADIUS database with one request (#77).
+
+    Expected JSON payload:
+    {"usernames": ["ABC12345", "DEF67890"]}      (at most 1000)
+
+    Idempotent: a username that does not exist counts as deleted. One transaction, so either
+    every username is deleted or (on a database error) none and the failure is reported for all.
+
+    Returns:
+    {"success": true, "requested": 2, "deleted": 1, "failed": 0, "errors": []}
+    """
+    data = request.get_json(silent=True)
+
+    if not data or not isinstance(data.get('usernames'), list):
+        return jsonify({'success': False, 'error': 'Missing usernames array in request'}), 400
+
+    usernames = [u for u in data['usernames'] if isinstance(u, str) and u]
+    usernames = list(dict.fromkeys(usernames))  # unique, keep order
+
+    if len(usernames) != len(data['usernames']) and len(usernames) == 0:
+        return jsonify({'success': False, 'error': 'usernames must be non-empty strings'}), 400
+
+    if len(usernames) > 1000:
+        return jsonify({'success': False, 'error': 'At most 1000 usernames per request'}), 400
+
+    if not usernames:
+        return jsonify({'success': True, 'requested': 0, 'deleted': 0, 'failed': 0, 'errors': []}), 200
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        deleted = 0
+        for username in usernames:
+            cursor.execute("DELETE FROM radcheck WHERE username = ?", (username,))
+            found = cursor.rowcount
+            cursor.execute("DELETE FROM radreply WHERE username = ?", (username,))
+            found += cursor.rowcount
+            cursor.execute("DELETE FROM radpostauth WHERE username = ?", (username,))
+            if found > 0:
+                deleted += 1
+
+        conn.commit()
+        logger.info(f"Batch delete: {len(usernames)} requested, {deleted} existed and were deleted")
+
+        return jsonify({
+            'success': True,
+            'requested': len(usernames),
+            'deleted': deleted,
+            'failed': 0,
+            'errors': []
+        }), 200
+
+    except Exception as e:
+        if conn is not None:
+            conn.rollback()
+        logger.error(f"Batch delete failed, nothing deleted: {e}")
+        return jsonify({
+            'success': False,
+            'requested': len(usernames),
+            'deleted': 0,
+            'failed': len(usernames),
+            'errors': [f"{u}: {str(e)}" for u in usernames[:50]]
+        }), 207
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @app.route('/reset/voucher', methods=['POST'])
