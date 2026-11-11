@@ -24,10 +24,10 @@ from typing import List, Dict, Optional
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('/var/log/radtik-activation-sync.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    # cron appends stdout to the same log file, so log to the screen only when a person runs it in a terminal
+    # (otherwise every line was written twice)
+    handlers=[logging.FileHandler('/var/log/radtik-activation-sync.log')]
+    + ([logging.StreamHandler(sys.stdout)] if sys.stdout.isatty() else [])
 )
 logger = logging.getLogger('activation-sync')
 
@@ -354,10 +354,49 @@ def sync_expirations_to_radius(expirations: List[Dict]) -> bool:
         return False
 
 
+def read_version() -> str:
+    """The installed RADTik RADIUS version (VERSION file next to scripts/), or '' when unreadable."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'VERSION')) as handle:
+            return handle.read().strip()
+    except OSError:
+        return ''
+
+
+def send_heartbeat() -> bool:
+    """
+    Tell the panel "I am alive and can reach you" (every run = every minute). The panel warns its owner when this stops,
+    which is how a wrong api_url is noticed. Failing is logged with the likely cause; the run goes on.
+    """
+    url = f"{LARAVEL_API_URL.rstrip('/')}/api/radius/heartbeat"
+
+    if 'example.com' in LARAVEL_API_URL:
+        logger.error(f"api_url in config.ini is still the placeholder ({LARAVEL_API_URL}). "
+                     "Press 'Push Credentials' in the panel or edit [laravel] api_url.")
+
+    try:
+        response = requests.post(
+            url,
+            headers={'Authorization': f'Bearer {AUTH_TOKEN}', 'Content-Type': 'application/json'},
+            json={'version': read_version()},
+            timeout=15
+        )
+        if response.status_code == 200:
+            return True
+        logger.error(f"The panel answered {response.status_code} to the heartbeat at {url}. "
+                     "Check auth_token in config.ini (panel: Verify Token Sync).")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Cannot reach the panel at {LARAVEL_API_URL}: {e}. Check [laravel] api_url in config.ini.")
+
+    return False
+
+
 def main():
     """Main function - fetches and posts activations"""
     try:
         logger.info("Starting activation sync...")
+
+        send_heartbeat()
         
         # Fetch the activations Laravel has not confirmed yet (24 hours when there is no state)
         last_id = load_last_id()

@@ -104,6 +104,10 @@ if [ "$(readlink -f "$SCRIPT_DIR")" != "$(readlink -f "$INSTALL_DIR")" ]; then
     echo -e "${YELLOW}Copying files to $INSTALL_DIR...${NC}"
     cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
     print_info "Installation files copied to $INSTALL_DIR"
+    # Remember which commit was installed (the panel shows it and compares updates against it)
+    if [ ! -s "$INSTALL_DIR/.installed_commit" ] && COMMIT_ID="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null)" && [ -n "$COMMIT_ID" ]; then
+        echo "$COMMIT_ID" > "$INSTALL_DIR/.installed_commit"
+    fi
 else
     print_info "Already running from installation directory ($INSTALL_DIR)"
 fi
@@ -357,7 +361,23 @@ API_TOKEN=$(openssl rand -hex 32)
 sed -i "s/auth_token = your-secure-token-here/auth_token = $API_TOKEN/" config.ini
 
 # Update database path
-sed -i "s|db_path = /var/lib/freeradius/radius.db|db_path = $FREERADIUS_DIR/sqlite/radius.db|" config.ini
+sed -i "s|^db_path = .*|db_path = $FREERADIUS_DIR/sqlite/radius.db|" config.ini
+
+# Address of the RADTik panel (activation-sync.py reports logins there). Without it vouchers never become active.
+# Give it with RADTIK_PANEL_URL=https://your-panel.example.com (e.g. `RADTIK_PANEL_URL=... sudo -E bash install.sh`),
+# or let the panel write it: "Push Credentials" on the server's page sets api_url.
+PANEL_URL="${RADTIK_PANEL_URL:-}"
+if [ -n "$PANEL_URL" ]; then
+    PANEL_URL="${PANEL_URL%/}"
+    if [[ "$PANEL_URL" =~ ^https?://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$ ]]; then
+        sed -i "s|^api_url = .*|api_url = $PANEL_URL|" config.ini
+        print_info "Panel address set: $PANEL_URL"
+    else
+        print_warning "RADTIK_PANEL_URL is not a valid address (use https://host[:port]); api_url was not set"
+    fi
+else
+    print_warning "Panel address not set yet: press 'Push Credentials' in the panel, or edit api_url in $SCRIPTS_DIR/config.ini"
+fi
 
 print_info "Configuration file created: $SCRIPTS_DIR/config.ini"
 print_info "Generated secure token (save this for Laravel)"

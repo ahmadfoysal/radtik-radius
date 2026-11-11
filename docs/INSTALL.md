@@ -30,9 +30,10 @@ On the server's page in the panel:
 1. **Test SSH Connection**.
 2. **Fetch API certificate**. The panel pins the API's public key; nothing is sent to the API before this is done.
 3. **Verify Token Sync**. If the token differs, press **Push Credentials** (it writes the panel's token and secret to the server and restarts the services).
-4. Set the panel address on the server (manual install only):
-   `sudo nano /opt/radtik-radius/scripts/config.ini` -> `[laravel] api_url = https://your-panel.example.com`.
-   `activation-sync.py` reports first logins there.
+4. **Panel address.** `activation-sync.py` reports first logins to `[laravel] api_url` in `/opt/radtik-radius/scripts/config.ini`. **Push Credentials** (step 3)
+   writes the panel's address (its `APP_URL`) there. Alternatively install with `RADTIK_PANEL_URL=https://your-panel.example.com` set,
+   or edit the file by hand. Without it vouchers never become active. Once a minute the server also tells the panel it is alive;
+   if the panel has not heard from it for 10 minutes the server's page shows a warning.
 5. **Test RADIUS Auth** to check FreeRADIUS answers.
 
 ## 3. Connect a router
@@ -59,7 +60,7 @@ TOKEN=$(sudo awk -F' = ' '/^auth_token/{print $2}' /opt/radtik-radius/scripts/co
 curl -sk -H "Authorization: Bearer $TOKEN" https://localhost:5000/health
 ```
 
-Logs: `/var/log/freeradius/radius.log`, `/var/log/radtik-radius-error.log` (API), `/var/log/radtik-activation-sync.log`.
+Logs: `/var/log/freeradius/radius.log`, `/var/log/radtik-radius-error.log` (API), `/var/log/radtik-activation-sync.log` (shows "Cannot reach the panel ..." or "api_url ... placeholder" when the address is wrong).
 
 ## Rebuilding or reinstalling a server
 

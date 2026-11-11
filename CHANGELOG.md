@@ -7,6 +7,19 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-11
+
+### Fixed
+- **Vouchers never became active after a fresh install**: `config.ini` kept the placeholder `api_url`, so first logins were never reported
+  to the panel. The panel's "Push Credentials" now writes `api_url`, and the installer accepts `RADTIK_PANEL_URL=https://your-panel`.
+- Every `activation-sync.py` log line was written twice (cron output and the log file); it logs to the file only unless run in a terminal.
+- A manual install left the panel showing "Unknown" for the installed commit: the installers now write `.installed_commit`.
+- `install.sh` set the database path only when `config.ini.example` still had the old default.
+
+### Added
+- `activation-sync.py` sends a heartbeat (with the installed version) to the panel every minute, so the panel can warn when
+  the server cannot reach it, and logs the likely cause (placeholder `api_url`, wrong token) when it cannot.
+
 ## [1.1.0] - 2026-11-11
 
 ### Added
@@ -136,6 +149,7 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 - API rate limiting and throttling
 - WebSocket support for real-time updates
 
-[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ahmadfoysal/radtik-radius/releases/tag/v1.0.0

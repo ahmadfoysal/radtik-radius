@@ -53,6 +53,16 @@ else
 fi
 echo ""
 
+# Remember which commit is installed (the panel shows it and compares updates against it).
+# The copy below has no .git folder, so the commit is read from the clone before it is removed.
+record_commit() {
+    local commit
+    commit="$(git -C "$TEMP_DIR" rev-parse HEAD 2>/dev/null || true)"
+    if [ -n "$commit" ]; then
+        echo "$commit" > "$INSTALL_DIR/.installed_commit"
+    fi
+}
+
 ###############################################################################
 # Clone or Update Repository
 ###############################################################################
@@ -70,6 +80,7 @@ if [ -d "$INSTALL_DIR" ]; then
         mkdir -p "$INSTALL_DIR"
         git clone -b $REPO_BRANCH "$REPO_URL" "$TEMP_DIR"
         cp -r "$TEMP_DIR"/* "$INSTALL_DIR/"
+        record_commit
         rm -rf "$TEMP_DIR"
     fi
 else
@@ -80,6 +91,7 @@ else
     # Copy repository contents directly (no subdirectory)
     echo -e "${GREEN}✓${NC} Copying installation files..."
     cp -r "$TEMP_DIR"/* "$INSTALL_DIR/"
+        record_commit
     
     rm -rf "$TEMP_DIR"
     echo -e "${GREEN}✓${NC} Repository cloned successfully"
