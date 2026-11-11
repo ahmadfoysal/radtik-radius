@@ -44,7 +44,7 @@ if not os.path.exists(config_path):
 config.read(config_path)
 
 # Configuration variables
-DB_PATH = config.get('radius', 'db_path', fallback='/var/lib/freeradius/radius.db')
+DB_PATH = config.get('radius', 'db_path', fallback='/etc/freeradius/3.0/sqlite/radius.db')
 AUTH_TOKEN = config.get('api', 'auth_token')
 API_HOST = config.get('api', 'host', fallback='0.0.0.0')
 API_PORT = config.getint('api', 'port', fallback=5000)

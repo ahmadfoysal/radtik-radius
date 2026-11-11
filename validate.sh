@@ -28,13 +28,13 @@ check_pass() {
 # Function to check failure
 check_fail() {
     echo -e "${RED}✗${NC} $1"
-    ((ERRORS++))
+    ERRORS=$((ERRORS + 1))
 }
 
 # Function to check warning
 check_warn() {
     echo -e "${YELLOW}⚠${NC} $1"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 }
 
 ###############################################################################

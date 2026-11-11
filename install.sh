@@ -424,14 +424,18 @@ echo ""
 echo -e "${YELLOW}[API 4/5] Configuring firewall...${NC}"
 
 if command -v ufw &> /dev/null; then
+    ufw allow 1812/udp > /dev/null 2>&1 || true
+    ufw allow 1813/udp > /dev/null 2>&1 || true
     ufw allow 5000/tcp > /dev/null 2>&1 || true
-    print_info "UFW: Port 5000 opened"
+    print_info "UFW: ports 1812/udp, 1813/udp (RADIUS) and 5000/tcp (API) opened"
 elif command -v firewall-cmd &> /dev/null; then
+    firewall-cmd --permanent --add-port=1812/udp > /dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port=1813/udp > /dev/null 2>&1 || true
     firewall-cmd --permanent --add-port=5000/tcp > /dev/null 2>&1 || true
     firewall-cmd --reload > /dev/null 2>&1 || true
-    print_info "Firewalld: Port 5000 opened"
+    print_info "Firewalld: ports 1812/udp, 1813/udp (RADIUS) and 5000/tcp (API) opened"
 else
-    print_warning "No firewall detected. Manually open port 5000 if needed."
+    print_warning "No firewall detected. Open 1812/udp, 1813/udp and 5000/tcp manually if you use one."
 fi
 echo ""
 
@@ -514,21 +518,10 @@ echo -e "${YELLOW}[Sync 2/3] Setting up cron job for activation sync...${NC}"
 
 CRON_FILE="/etc/cron.d/radtik-sync"
 
-cat > "$CRON_FILE" << 'EOF'
-# RadTik FreeRADIUS Synchronization Jobs
-
-# Sync voucher activations to Laravel every minute (also writes each voucher's expiry into RADIUS)
-# Monitors radpostauth for new authentications and updates Laravel
-* * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
-
-# (Comparing RADIUS with the database is done by Laravel itself: `php artisan radius:reconcile`)
-
-EOF
-
-chmod 644 "$CRON_FILE"
+# The job list lives in the repository (cron/radtik-sync); post-update.sh keeps it current on updates.
+install -m 644 "$INSTALL_DIR/cron/radtik-sync" "$CRON_FILE"
 
 print_info "Activation sync cron job installed: runs every minute"
-print_info "Cleanup orphaned cron job installed: runs every 6 hours"
 echo ""
 
 ###############################################################################

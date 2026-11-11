@@ -1,0 +1,8 @@
+# RADTik RADIUS server - scheduled jobs (installed to /etc/cron.d/radtik-sync by install.sh / post-update.sh)
+
+# Report new logins to the RADTik panel every minute. The answer also carries each voucher's expiry,
+# which the script writes into RADIUS ("Expiration"). See docs/ARCHITECTURE.md.
+* * * * * root /usr/bin/python3 /opt/radtik-radius/scripts/activation-sync.py >> /var/log/radtik-activation-sync.log 2>&1
+
+# Nothing else runs here: the panel compares RADIUS with its database every night
+# (php artisan radius:reconcile) and removes or restores vouchers itself.

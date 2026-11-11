@@ -81,7 +81,7 @@ fi
 # Get current version
 if [ -f "$INSTALL_DIR/VERSION" ]; then
     CURRENT_VERSION=$(cat "$INSTALL_DIR/VERSION")
-    echo "Current version: ${GREEN}$CURRENT_VERSION${NC}"
+    echo -e "Current version: ${GREEN}$CURRENT_VERSION${NC}"
 else
     print_warning "Could not determine current version"
     CURRENT_VERSION="unknown"
@@ -94,8 +94,12 @@ echo "  ${GREEN}✓${NC} Preserve your configuration files"
 echo "  ${GREEN}✓${NC} Update system files"
 echo "  ${GREEN}✓${NC} Restart services"
 echo ""
-read -p "Continue with update? (y/N) " -n 1 -r
-echo
+if [ "${1:-}" = "-y" ] || [ "${1:-}" = "--yes" ]; then
+    REPLY="y"
+else
+    read -p "Continue with update? (y/N) " -n 1 -r
+    echo
+fi
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Update cancelled."
     exit 0
@@ -135,93 +139,59 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 echo -e "${YELLOW}Copying updated files...${NC}"
 
-# Backup config.ini before overwriting
-if [ -f "$INSTALL_DIR/scripts/config.ini" ]; then
-    cp "$INSTALL_DIR/scripts/config.ini" /tmp/config.ini.backup
-    print_info "Configuration backed up"
-fi
+# Server-specific files that an update must never overwrite
+PROTECTED_DIR="$(mktemp -d)"
+for file in scripts/config.ini clients.conf sqlite/radius.db; do
+    if [ -f "$INSTALL_DIR/$file" ]; then
+        mkdir -p "$PROTECTED_DIR/$(dirname "$file")"
+        cp -p "$INSTALL_DIR/$file" "$PROTECTED_DIR/$file"
+    fi
+done
+print_info "Configuration backed up"
 
 # Copy all files from source to installation directory
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
-    cp -r "$SCRIPT_DIR"/* "$INSTALL_DIR/"
+    cp -r "$SCRIPT_DIR"/. "$INSTALL_DIR/"
     print_info "Files updated"
 else
     print_warning "Running from installation directory, files already in place"
 fi
 
-# Restore config.ini
-if [ -f /tmp/config.ini.backup ]; then
-    cp /tmp/config.ini.backup "$INSTALL_DIR/scripts/config.ini"
-    rm /tmp/config.ini.backup
-    print_info "Configuration restored"
-fi
+# Restore the protected files
+(cd "$PROTECTED_DIR" && find . -type f) | while read -r file; do
+    cp -p "$PROTECTED_DIR/$file" "$INSTALL_DIR/$file"
+done
+rm -rf "$PROTECTED_DIR"
+print_info "Configuration restored"
 
 # Set proper permissions
 echo -e "${YELLOW}Setting permissions...${NC}"
 chown -R root:root "$INSTALL_DIR"
 chmod +x "$INSTALL_DIR/install.sh"
 chmod +x "$INSTALL_DIR/update.sh"
-chmod +x "$INSTALL_DIR/scripts/"*.py
+chmod +x "$INSTALL_DIR/scripts/"*.py "$INSTALL_DIR/scripts/"*.sh
 print_info "Permissions set"
 
-# Activation sync runs every minute now (it also writes voucher expiry into RADIUS, #32).
-# Older installs have it every 5 minutes; the cron file is not part of the update files.
-if [ -f /etc/cron.d/radtik-sync ] && grep -q '^\*/5 .*activation-sync.py' /etc/cron.d/radtik-sync; then
-    sed -i 's#^\*/5 \(.*activation-sync.py\)#* \1#' /etc/cron.d/radtik-sync
-    print_info "Activation sync cron changed to every minute"
-fi
 echo ""
 
 ###############################################################################
-# PHASE 4: Update Python Dependencies
+# PHASE 4: Apply configuration
 ###############################################################################
 
-print_header "PHASE 4: Updating Python Dependencies"
+print_header "PHASE 4: Applying Configuration"
 
-echo -e "${YELLOW}Installing/updating Python packages...${NC}"
-pip3 install -r "$INSTALL_DIR/requirements.txt" --upgrade --quiet
-print_info "Python dependencies updated"
+# FreeRADIUS files, scheduled jobs, python packages, API certificate and systemd unit are
+# applied by one script that the panel's "Apply update" uses too. It leaves config.ini,
+# clients.conf and the database alone, and refuses a configuration FreeRADIUS rejects.
+bash "$INSTALL_DIR/scripts/post-update.sh" freerad
+print_info "Configuration applied"
 echo ""
 
 ###############################################################################
-# PHASE 5: Update FreeRADIUS Configuration (if needed)
+# PHASE 5: Start Services
 ###############################################################################
 
-print_header "PHASE 5: Updating FreeRADIUS Configuration"
-
-echo -e "${YELLOW}Checking FreeRADIUS configuration...${NC}"
-
-# Copy updated module configurations (preserve clients.conf)
-if [ -d "$INSTALL_DIR/mods-available" ]; then
-    cp -r "$INSTALL_DIR/mods-available"/* "$FREERADIUS_DIR/mods-available/" 2>/dev/null || true
-    print_info "Module configurations updated"
-fi
-
-if [ -d "$INSTALL_DIR/mods-config" ]; then
-    cp -r "$INSTALL_DIR/mods-config"/* "$FREERADIUS_DIR/mods-config/" 2>/dev/null || true
-    print_info "Module configs updated"
-fi
-
-if [ -d "$INSTALL_DIR/sites-enabled" ]; then
-    cp -r "$INSTALL_DIR/sites-enabled"/* "$FREERADIUS_DIR/sites-enabled/" 2>/dev/null || true
-    print_info "Site configurations updated"
-fi
-
-# Preserve clients.conf (contains user's secrets)
-print_warning "Preserving existing clients.conf (not overwriting)"
-echo ""
-
-###############################################################################
-# PHASE 6: Start Services
-###############################################################################
-
-print_header "PHASE 6: Starting Services"
-
-# TLS for the API (#33): create the certificate if missing and refresh the
-# systemd unit so gunicorn serves HTTPS.
-bash /opt/radtik-radius/scripts/ensure-api-tls.sh freerad
-cp /opt/radtik-radius/radtik-radius-api.service /etc/systemd/system/radtik-radius-api.service
-systemctl daemon-reload
+print_header "PHASE 5: Starting Services"
 
 echo -e "${YELLOW}Starting services...${NC}"
 systemctl start radtik-radius-api
@@ -252,7 +222,7 @@ fi
 echo ""
 
 ###############################################################################
-# PHASE 7: Update Complete
+# PHASE 6: Update Complete
 ###############################################################################
 
 print_header "Update Complete!"

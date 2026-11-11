@@ -1,37 +1,49 @@
 # Changelog
 
-All notable changes to the RadTik FreeRADIUS installer will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to the RADTik RADIUS server are documented here.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/): MAJOR = incompatible change, MINOR = new feature, PATCH = fix.
+The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX.Y.Z`.
 
 ## [Unreleased]
 
-### Security
-
-- The post-auth query no longer stores the password the client sent in `radpostauth.pass` (voucher codes in clear text, including wrong guesses). The column stays (schema) but is empty.
+## [1.1.0] - 2026-11-11
 
 ### Added
+- **Expiry is enforced by RADIUS itself.** `activation-sync.py` writes each voucher's expiry into `radcheck` as `Expiration`
+  (converted to the server's local time zone). FreeRADIUS rejects the voucher after it, also while the panel is offline,
+  and gives every new session a `Session-Timeout` equal to the time left.
+- **Rebuild from the database.** `/sync/vouchers` accepts `overwrite`, `mac_address`, `disabled` and `expiration` per voucher;
+  new `GET /vouchers/usernames` (paged username list) and `POST /delete/vouchers` (batch delete, up to 1000).
+- `scripts/post-update.sh`: one idempotent script that applies an update (FreeRADIUS configuration, scheduled jobs,
+  Python packages, API certificate, systemd unit) and refuses a configuration FreeRADIUS rejects.
+  `update.sh` and the panel's "Apply update" both use it. `update.sh -y` runs without a prompt.
+- `cron/radtik-sync`: the scheduled jobs live in the repository.
+- Documentation rewritten: `docs/INSTALL.md`, `docs/API.md`, `docs/ARCHITECTURE.md`, `docs/UPDATING.md`, `SECURITY.md`.
 
-- Voucher expiry is enforced by RADIUS itself: `activation-sync.py` writes `Expiration` (converted to the server's local time zone) into `radcheck`; FreeRADIUS rejects after it and sets `Session-Timeout` to the time left. `/sync/vouchers` accepts `expiration` per voucher.
-- `activation-sync.py` runs every minute and only sends activations Laravel has not confirmed yet (state file `.activation-sync.state`, 10 minutes overlap). `update.sh` changes an existing 5-minute cron to every minute. Activation timestamps are now sent as UTC (they used to be the server's local time, which Laravel read as UTC).
-- `/sync/vouchers`: `overwrite`, `mac_address`, `disabled`; `GET /vouchers/usernames`; `POST /delete/vouchers` (batch).
-
-- **Update Management System**: Check for and apply updates directly from RADTik panel
-  - Version checking via GitHub API for latest releases
-  - One-click update with automatic backup creation
-  - Configuration preservation during updates
-  - Service health verification after updates
-  - Rollback instructions provided after each update
-- New `update.sh` script for safe system updates
-- Version display in RADIUS server management interface
+### Changed
+- `activation-sync.py` runs every minute and sends only logins the panel has not confirmed yet (state file
+  `.activation-sync.state`, 10 minutes overlap) instead of the last 24 hours every time.
+- Login times are sent as UTC. Before, the server's local time was sent unlabelled and the panel read it as UTC,
+  which shifted every activation and expiry by the server's UTC offset on a non-UTC server.
+- `sync-vouchers.py` answers per voucher; an identical voucher sent again is a success (safe retries).
+- Python requirements have upper bounds. `config.ini.example` lists only the settings that are used.
+- Update keeps `clients.conf`, `config.ini` and the database; `update.sh` also copies hidden files.
 
 ### Fixed
+- `validate.sh` stopped at the first failed check (`set -e` with `((n++))`).
+- The panel's "Apply update" did not deploy FreeRADIUS configuration changes or scheduled-job changes.
+- `install.sh` opened only port 5000 in ufw/firewalld; it now also opens the RADIUS ports 1812/1813 (UDP).
+- `install.sh` printed a message about a cleanup job that no longer exists.
+- `sync-vouchers.py` used a different default database path than the installer.
 
-- Added systemd service override configuration to grant FreeRADIUS write access to SQLite directory
-- Installer now automatically creates `/etc/systemd/system/freeradius.service.d/sqlite-write-access.conf`
-- Resolves SQLite write permission issues on systems with restricted systemd service configurations
-- Ensures `/etc/freeradius/3.0/sqlite/` directory is writable by FreeRADIUS daemon
+### Security
+- The password a client sends is no longer stored in `radpostauth.pass` (voucher codes in clear text, including wrong guesses).
+  The column stays (schema) and is empty.
+
+### Removed
+- `cleanup-orphaned.py` and its cron job. The panel compares RADIUS with its database every night and restores or
+  removes vouchers itself (`php artisan radius:reconcile`).
 
 ## [1.0.0] - 2026-02-15
 
@@ -123,3 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-tenancy support for ISPs
 - API rate limiting and throttling
 - WebSocket support for real-time updates
+
+[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/ahmadfoysal/radtik-radius/releases/tag/v1.0.0

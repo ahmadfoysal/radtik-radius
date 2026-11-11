@@ -1,37 +1,24 @@
-# RadTik FreeRADIUS Synchronization Configuration
-# Copy this file to config.ini and update with your settings
+# RADTik RADIUS server - scripts/config.ini
+# install.sh creates config.ini from this file and fills in the API token and the database path.
+# config.ini holds secrets: never commit it, never share it.
 
 [api]
-# API Server Configuration (Flask API for receiving sync requests from Laravel)
-# Host to bind to (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
+# Address and port of the API (gunicorn serves HTTPS on port 5000, see radtik-radius-api.service)
 host = 0.0.0.0
-
-# Port to listen on
 port = 5000
 
-# Authentication token for incoming requests from Laravel
-# IMPORTANT: Change this to a secure random token!
-# This should match the 'auth_token' field in RadiusServer model in Laravel
+# Bearer token the panel must send. Must equal the "API token" of this server in the RADTik panel
+# (panel: RADIUS server -> Verify Token Sync / Push Credentials). 32-128 characters of A-Z a-z 0-9 _ -
 auth_token = your-secure-token-here
 
-# Enable debug mode (DO NOT use in production!)
+# Never enable in production
 debug = false
 
 [laravel]
-# Laravel API base URL (without trailing slash)
-# The script will append the endpoint path
-api_url = https://radtik.com
-
-# API secret token for authentication
-# This should match the token configured in Laravel for this RADIUS server
-api_secret = your-radius-server-api-token-here
+# Base URL of the RADTik panel, without a trailing slash. activation-sync.py reports logins to
+# <api_url>/api/radius/activations
+api_url = https://radtik.example.com
 
 [radius]
-# Path to FreeRADIUS SQLite database
-db_path = /var/lib/freeradius/radius.db
-
-[sync]
-# Sync intervals (for reference, actual scheduling in cron)
-voucher_sync_minutes = 2
-activation_check_minutes = 1
-deleted_sync_minutes = 5
+# FreeRADIUS SQLite database
+db_path = /etc/freeradius/3.0/sqlite/radius.db

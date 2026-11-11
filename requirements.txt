@@ -1,16 +1,13 @@
-# Python Requirements for RadTik FreeRADIUS Sync Scripts
+# Python requirements of the RADTik RADIUS server (API + sync scripts).
+# Upper bounds keep an install from jumping to a new major version; raise them after testing.
 
-# Flask web framework for API server
-flask>=3.0.0
+# API server
+flask>=3.0.0,<4
 
-# HTTP library for API requests (legacy scripts)
-requests>=2.31.0
+# HTTP client (activation-sync.py)
+requests>=2.31.0,<3
 
-# WSGI HTTP server for production deployment
-gunicorn>=21.2.0
+# Production WSGI server (systemd unit radtik-radius-api.service)
+gunicorn>=21.2.0,<24
 
-# Standard library modules (included with Python 3.6+)
-# - sqlite3 (built-in)
-# - configparser (built-in)
-# - datetime (built-in)
-# - logging (built-in)
+# Everything else (sqlite3, configparser, logging, datetime, json) is the Python standard library.
