@@ -7,6 +7,9 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 
 ## [Unreleased]
 
+### Changed
+- Docs (README, INSTALL): the installation is manual and pinned to a release tag (`RADTIK_BRANCH=vX.Y.Z`); the panel has no install button.
+
 ## [1.2.0] - 2026-11-11
 
 ### Added

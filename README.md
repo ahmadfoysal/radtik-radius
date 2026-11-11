@@ -23,12 +23,12 @@ create, remove and check voucher users. MikroTik routers authenticate hotspot us
 
 ## Install
 
-**From the RADTik panel (recommended):** add the server (IP, SSH user) under *RADIUS servers* and press *Install*.
-
-**Manually, on a fresh Ubuntu 22.04 server, as root:**
+The installation is **manual** (the panel connects to the server afterwards, it does not install it). On a fresh Ubuntu 22.04 server, as root,
+install a release tag (replace `X.Y.Z`; the panel's *Setup Guide* shows the exact command for its version):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/main/bootstrap-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/vX.Y.Z/bootstrap-install.sh \
+  | sudo RADTIK_BRANCH=vX.Y.Z RADTIK_PANEL_URL=https://your-panel.example.com bash
 ```
 
 Then connect it to the panel; see [docs/INSTALL.md](docs/INSTALL.md) (about 10 minutes).

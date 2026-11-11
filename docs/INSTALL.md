@@ -18,12 +18,12 @@ sudo RADTIK_PANEL_URL=https://your-panel.example.com bash /opt/radtik-radius/ins
 
 ## 1. Install the server
 
-**From the panel (recommended):** *RADIUS servers* -> *Create Server* (host, SSH port, SSH user and password or key), then run the installation from the server's page.
-
-**Manually (as root):**
+The installation is **manual**: the panel connects to the server afterwards and manages it, it does not install it. As root, install a release tag
+(replace `X.Y.Z`; the panel's *Setup Guide* shows the exact command for its version):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/main/bootstrap-install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ahmadfoysal/radtik-radius/vX.Y.Z/bootstrap-install.sh \
+  | sudo RADTIK_BRANCH=vX.Y.Z RADTIK_PANEL_URL=https://your-panel.example.com bash
 ```
 
 The installer: installs FreeRADIUS, SQLite and Python packages; deploys the configuration; generates a **unique RADIUS shared secret**
