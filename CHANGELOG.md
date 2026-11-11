@@ -7,6 +7,17 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-11
+
+### Added
+- `scripts/firewall.sh`, run by `install.sh`: opens 1812/udp, 1813/udp and 5000/tcp. With `--enable-firewall` (or `RADTIK_ENABLE_FIREWALL=1`)
+  it also turns ufw on: the SSH port(s) are allowed first and the API port only for the panel (`RADTIK_PANEL_IP`, or looked up from
+  `RADTIK_PANEL_URL`). Without the flag nothing is switched on.
+
+### Security
+- Removed the stock `localhost_ipv6` client (default secret `testing123`) from `clients.conf`; only the 127.0.0.1 client keeps it
+  (used by the panel's local "Test RADIUS Auth").
+
 ## [1.1.1] - 2026-11-11
 
 ### Fixed
@@ -149,7 +160,8 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 - API rate limiting and throttling
 - WebSocket support for real-time updates
 
-[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ahmadfoysal/radtik-radius/releases/tag/v1.0.0

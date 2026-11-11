@@ -6,6 +6,16 @@
 - A RADTik panel account (the panel creates the API token and the shared secret).
 - Open ports: see the table in the [README](../README.md#install).
 
+## Firewall
+
+The installer opens 1812/udp, 1813/udp and 5000/tcp in ufw or firewalld but does **not** switch the firewall on. To switch ufw on, with the API
+reachable only from the panel (SSH is allowed first, so you are not locked out):
+
+```bash
+sudo RADTIK_PANEL_URL=https://your-panel.example.com bash /opt/radtik-radius/install.sh --enable-firewall
+# or, when you know the panel server's IP:  RADTIK_PANEL_IP=203.0.113.9 ... --enable-firewall
+```
+
 ## 1. Install the server
 
 **From the panel (recommended):** *RADIUS servers* -> *Create Server* (host, SSH port, SSH user and password or key), then run the installation from the server's page.

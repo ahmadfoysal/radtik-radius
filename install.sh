@@ -443,20 +443,9 @@ echo ""
 ###############################################################################
 echo -e "${YELLOW}[API 4/5] Configuring firewall...${NC}"
 
-if command -v ufw &> /dev/null; then
-    ufw allow 1812/udp > /dev/null 2>&1 || true
-    ufw allow 1813/udp > /dev/null 2>&1 || true
-    ufw allow 5000/tcp > /dev/null 2>&1 || true
-    print_info "UFW: ports 1812/udp, 1813/udp (RADIUS) and 5000/tcp (API) opened"
-elif command -v firewall-cmd &> /dev/null; then
-    firewall-cmd --permanent --add-port=1812/udp > /dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=1813/udp > /dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=5000/tcp > /dev/null 2>&1 || true
-    firewall-cmd --reload > /dev/null 2>&1 || true
-    print_info "Firewalld: ports 1812/udp, 1813/udp (RADIUS) and 5000/tcp (API) opened"
-else
-    print_warning "No firewall detected. Open 1812/udp, 1813/udp and 5000/tcp manually if you use one."
-fi
+# Opens the RADIUS and API ports. `bash install.sh --enable-firewall` (or RADTIK_ENABLE_FIREWALL=1) also turns ufw on:
+# SSH is allowed first and the API port only for the panel (RADTIK_PANEL_IP / RADTIK_PANEL_URL). See scripts/firewall.sh.
+RADTIK_PANEL_URL="${PANEL_URL:-${RADTIK_PANEL_URL:-}}" bash "$INSTALL_DIR/scripts/firewall.sh" "$@"
 echo ""
 
 ###############################################################################
