@@ -7,6 +7,13 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-12
+
+### Added
+- `POST /vouchers/details` (read only): everything this server knows about one voucher for the panel's voucher page and
+  login checker - check/reply attributes (the password only as a SHA-256), groups, the last 20 sessions with data used,
+  totals, and the last 30 login attempts (accept/reject, MAC, NAS). Times are sent in UTC.
+
 ### Changed
 - Messages and docs use the panel's new action names ("Trust this server", "Check connection key", "Send keys to server").
 - Docs (README, INSTALL): the installation is manual and pinned to a release tag (`RADTIK_BRANCH=vX.Y.Z`); the panel has no install button.
@@ -164,7 +171,8 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 - API rate limiting and throttling
 - WebSocket support for real-time updates
 
-[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.0.0...v1.1.0

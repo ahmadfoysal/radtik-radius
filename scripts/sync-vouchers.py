@@ -7,6 +7,7 @@ Endpoints:
 - POST /sync/vouchers - Sync batch of vouchers to RADIUS database
 - DELETE /delete/voucher - Delete a voucher from RADIUS database
 - GET /health - Health check endpoint
+- POST /vouchers/details - Everything RADIUS knows about one voucher (read only)
 
 Authentication: Bearer token (configured in config.ini)
 """
@@ -464,6 +465,132 @@ def list_usernames():
             conn.close()
 
 
+def _to_utc_iso(value):
+    """radacct times are epoch seconds (queries.conf event_timestamp); radpostauth.authdate is local text."""
+    from datetime import timezone
+    if value is None or value == '':
+        return None
+    try:
+        return datetime.fromtimestamp(int(float(value)), tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except (TypeError, ValueError):
+        pass
+    try:
+        text = str(value).strip().replace(' ', 'T', 1).split('.', 1)[0]
+        return datetime.fromisoformat(text).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    except ValueError:
+        return None
+
+
+@app.route('/vouchers/details', methods=['POST'])
+@require_auth
+def voucher_details():
+    """
+    Everything RADIUS knows about ONE voucher, read only (panel voucher page and login checker, #137).
+
+    Body: {"username": "ABC123"}
+    The password itself is never returned: only its SHA-256, so the panel can compare it with its own copy.
+    Times are UTC ("...Z").
+    """
+    import hashlib
+    from datetime import timezone
+
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    if not username or len(username) > 64:
+        return jsonify({'success': False, 'error': 'username is required (max 64 characters)'}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT attribute, op, value FROM radcheck WHERE username = ? ORDER BY id", (username,))
+        check = []
+        password_sha256 = None
+        for row in cursor.fetchall():
+            if row['attribute'] == 'Cleartext-Password':
+                password_sha256 = hashlib.sha256(str(row['value']).encode('utf-8')).hexdigest()
+                check.append({'attribute': row['attribute'], 'op': row['op'], 'value': '(hidden)'})
+            else:
+                check.append({'attribute': row['attribute'], 'op': row['op'], 'value': row['value']})
+
+        cursor.execute("SELECT attribute, op, value FROM radreply WHERE username = ? ORDER BY id", (username,))
+        reply = [{'attribute': r['attribute'], 'op': r['op'], 'value': r['value']} for r in cursor.fetchall()]
+
+        cursor.execute("SELECT groupname FROM radusergroup WHERE username = ? ORDER BY priority", (username,))
+        groups = [r['groupname'] for r in cursor.fetchall()]
+
+        cursor.execute(
+            "SELECT acctsessionid, acctstarttime, acctupdatetime, acctstoptime, acctsessiontime, "
+            "acctinputoctets, acctoutputoctets, nasipaddress, nasportid, callingstationid, framedipaddress, "
+            "acctterminatecause FROM radacct WHERE username = ? ORDER BY radacctid DESC LIMIT 20",
+            (username,)
+        )
+        sessions = [{
+            'session_id': r['acctsessionid'],
+            'start': _to_utc_iso(r['acctstarttime']),
+            'update': _to_utc_iso(r['acctupdatetime']),
+            'stop': _to_utc_iso(r['acctstoptime']),
+            'seconds': int(r['acctsessiontime'] or 0),
+            'download': int(r['acctoutputoctets'] or 0),  # to the customer
+            'upload': int(r['acctinputoctets'] or 0),
+            'nas_ip': r['nasipaddress'],
+            'nas_port': r['nasportid'],
+            'mac': r['callingstationid'],
+            'ip': r['framedipaddress'],
+            'terminate_cause': r['acctterminatecause'],
+            'open': r['acctstoptime'] in (None, ''),
+        } for r in cursor.fetchall()]
+
+        cursor.execute(
+            "SELECT COUNT(*) AS n, SUM(CASE WHEN acctstoptime IS NULL OR acctstoptime = '' THEN 1 ELSE 0 END) AS open_n, "
+            "COALESCE(SUM(acctsessiontime), 0) AS secs, COALESCE(SUM(acctoutputoctets), 0) AS down, "
+            "COALESCE(SUM(acctinputoctets), 0) AS up, MIN(acctstarttime) AS first FROM radacct WHERE username = ?",
+            (username,)
+        )
+        t = cursor.fetchone()
+        totals = {
+            'sessions': int(t['n'] or 0),
+            'open_sessions': int(t['open_n'] or 0),
+            'seconds': int(t['secs'] or 0),
+            'download': int(t['down'] or 0),
+            'upload': int(t['up'] or 0),
+            'first_start': _to_utc_iso(t['first']),
+        }
+
+        cursor.execute(
+            "SELECT reply, authdate, calling_station_id, nas_identifier FROM radpostauth "
+            "WHERE username = ? ORDER BY id DESC LIMIT 30",
+            (username,)
+        )
+        attempts = [{
+            'at': _to_utc_iso(r['authdate']),
+            'reply': r['reply'],
+            'mac': r['calling_station_id'],
+            'nas': r['nas_identifier'],
+        } for r in cursor.fetchall()]
+
+        return jsonify({
+            'success': True,
+            'username': username,
+            'exists': password_sha256 is not None,
+            'password_sha256': password_sha256,
+            'check': check,
+            'reply': reply,
+            'groups': groups,
+            'sessions': sessions,
+            'totals': totals,
+            'attempts': attempts,
+            'server_time': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }), 200
+    except Exception as e:
+        logger.error(f"Voucher details error: {e}")
+        return jsonify({'success': False, 'error': 'Could not read the RADIUS database'}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 @app.route('/delete/vouchers', methods=['POST'])
 @require_auth
 def delete_vouchers():
@@ -883,6 +1010,7 @@ def not_found(e):
             'GET /health',
             'POST /sync/vouchers',
             'POST /sync-mac-bindings',
+            'POST /vouchers/details',
             'DELETE /delete/voucher',
             'GET /stats'
         ]
