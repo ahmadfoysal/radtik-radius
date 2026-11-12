@@ -10,7 +10,7 @@ and steps to reproduce.
 ## How a RADTik RADIUS server is protected
 
 - **API**: HTTPS on port 5000 with a self-signed certificate and a Bearer token. The RADTik panel does not
-  trust a certificate authority; it pins the certificate's public key ("Fetch API certificate").
+  trust a certificate authority; it pins the certificate's public key ("Trust this server").
   Allow port 5000 only from the panel's IP address in your firewall (`install.sh --enable-firewall` does this, see docs/INSTALL.md).
 - **RADIUS**: UDP 1812/1813 accept requests from any address that knows the shared secret
   (`clients.conf`, generated per installation). If your routers have fixed addresses, restrict these ports to them.

@@ -3,7 +3,7 @@
 # Create the self-signed TLS certificate for the RadTik RADIUS API (#33),
 # if it does not exist yet. The Laravel panel does not trust it through a
 # certificate authority: it pins the certificate's public key, which it
-# reads over the (host-key-pinned) SSH connection ("Fetch API certificate").
+# reads over the (host-key-pinned) SSH connection ("Trust this server").
 #
 # Safe to run more than once. Run as root.
 set -euo pipefail

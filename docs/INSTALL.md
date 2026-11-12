@@ -37,14 +37,14 @@ and `/etc/freeradius/3.0/clients.conf`.
 
 On the server's page in the panel:
 
-1. **Test SSH Connection**.
-2. **Fetch API certificate**. The panel pins the API's public key; nothing is sent to the API before this is done.
-3. **Verify Token Sync**. If the token differs, press **Push Credentials** (it writes the panel's token and secret to the server and restarts the services).
-4. **Panel address.** `activation-sync.py` reports first logins to `[laravel] api_url` in `/opt/radtik-radius/scripts/config.ini`. **Push Credentials** (step 3)
+1. Open the server in the panel: the status strip shows SSH, FreeRADIUS, API and the panel connection by itself (press **Refresh** to check again).
+2. **Trust this server** (Connection tab). The panel pins the API's public key; nothing is sent to the API before this is done.
+3. **Check connection key**. If the token differs, press **Send keys to server** (it writes the panel's token and secret to the server and restarts the services).
+4. **Panel address.** `activation-sync.py` reports first logins to `[laravel] api_url` in `/opt/radtik-radius/scripts/config.ini`. **Send keys to server** (step 3)
    writes the panel's address (its `APP_URL`) there. Alternatively install with `RADTIK_PANEL_URL=https://your-panel.example.com` set,
    or edit the file by hand. Without it vouchers never become active. Once a minute the server also tells the panel it is alive;
    if the panel has not heard from it for 10 minutes the server's page shows a warning.
-5. **Test RADIUS Auth** to check FreeRADIUS answers.
+5. **Test RADIUS answer** to check FreeRADIUS answers.
 
 ## 3. Connect a router
 
@@ -76,8 +76,8 @@ Logs: `/var/log/freeradius/radius.log`, `/var/log/radtik-radius-error.log` (API)
 
 The panel's database is the source of truth, so a lost server can be refilled:
 
-1. Install the new server. Use the **same API token and shared secret** as before (press **Push Credentials** in the panel).
-2. **Fetch API certificate** again (the new server has a new certificate) and, if the panel complains, reset the SSH host key on the server's Edit page.
+1. Install the new server. Use the **same API token and shared secret** as before (press **Send keys to server** in the panel).
+2. **Trust this server** again (the new server has a new certificate) and, if the panel complains, reset the SSH host key on the server's Edit page.
 3. Press **Resync from database**. Every live voucher is sent again, including passwords, rate limits, MAC bindings, disabled state and expiry.
 4. **Compare now** should report nothing missing.
 
@@ -88,7 +88,7 @@ What cannot be restored: the accounting history (`radacct`) and login logs of th
 | Symptom | Check |
 |---|---|
 | Panel says the API is unreachable | port 5000 open from the panel's IP; `systemctl status radtik-radius-api`; the certificate was fetched |
-| Panel and server disagree on the token | **Verify Token Sync**, then **Push Credentials** |
+| Panel and server disagree on the token | **Check connection key**, then **Send keys to server** |
 | Users cannot log in | `freeradius -CX` (configuration), router's RADIUS secret equals `clients.conf`, router's NAS identifier equals the one in the panel |
 | Vouchers do not become *active* after the first login | `tail /var/log/radtik-activation-sync.log`; `api_url` and `auth_token` in `config.ini` |
 | Expiry is off by hours | the server's time zone is handled; check the server clock (`timedatectl`) |

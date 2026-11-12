@@ -365,7 +365,7 @@ sed -i "s|^db_path = .*|db_path = $FREERADIUS_DIR/sqlite/radius.db|" config.ini
 
 # Address of the RADTik panel (activation-sync.py reports logins there). Without it vouchers never become active.
 # Give it with RADTIK_PANEL_URL=https://your-panel.example.com (e.g. `RADTIK_PANEL_URL=... sudo -E bash install.sh`),
-# or let the panel write it: "Push Credentials" on the server's page sets api_url.
+# or let the panel write it: "Send keys to server" on the server's page sets api_url.
 PANEL_URL="${RADTIK_PANEL_URL:-}"
 if [ -n "$PANEL_URL" ]; then
     PANEL_URL="${PANEL_URL%/}"
@@ -376,7 +376,7 @@ if [ -n "$PANEL_URL" ]; then
         print_warning "RADTIK_PANEL_URL is not a valid address (use https://host[:port]); api_url was not set"
     fi
 else
-    print_warning "Panel address not set yet: press 'Push Credentials' in the panel, or edit api_url in $SCRIPTS_DIR/config.ini"
+    print_warning "Panel address not set yet: press 'Send keys to server' in the panel, or edit api_url in $SCRIPTS_DIR/config.ini"
 fi
 
 print_info "Configuration file created: $SCRIPTS_DIR/config.ini"
@@ -608,7 +608,7 @@ echo "  • Service: systemctl status freeradius"
 echo ""
 
 echo -e "${GREEN}✓ API Server installed and running${NC}"
-echo "  • Endpoint: https://<this-server>:5000 (self-signed; pin it in the panel with \"Fetch API certificate\")"
+echo "  • Endpoint: https://<this-server>:5000 (self-signed; pin it in the panel with \"Trust this server\")"
 echo "  • Service: systemctl status $API_SERVICE_NAME"
 echo "  • Logs: journalctl -u $API_SERVICE_NAME -f"
 echo ""

@@ -8,7 +8,7 @@ host = 0.0.0.0
 port = 5000
 
 # Bearer token the panel must send. Must equal the "API token" of this server in the RADTik panel
-# (panel: RADIUS server -> Verify Token Sync / Push Credentials). 32-128 characters of A-Z a-z 0-9 _ -
+# (panel: RADIUS server -> Check connection key / Send keys to server). 32-128 characters of A-Z a-z 0-9 _ -
 auth_token = your-secure-token-here
 
 # Never enable in production

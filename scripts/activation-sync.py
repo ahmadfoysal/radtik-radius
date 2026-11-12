@@ -372,7 +372,7 @@ def send_heartbeat() -> bool:
 
     if 'example.com' in LARAVEL_API_URL:
         logger.error(f"api_url in config.ini is still the placeholder ({LARAVEL_API_URL}). "
-                     "Press 'Push Credentials' in the panel or edit [laravel] api_url.")
+                     "Press 'Send keys to server' in the panel or edit [laravel] api_url.")
 
     try:
         response = requests.post(
@@ -384,7 +384,7 @@ def send_heartbeat() -> bool:
         if response.status_code == 200:
             return True
         logger.error(f"The panel answered {response.status_code} to the heartbeat at {url}. "
-                     "Check auth_token in config.ini (panel: Verify Token Sync).")
+                     "Check auth_token in config.ini (panel: Check connection key).")
     except requests.exceptions.RequestException as e:
         logger.error(f"Cannot reach the panel at {LARAVEL_API_URL}: {e}. Check [laravel] api_url in config.ini.")
 
