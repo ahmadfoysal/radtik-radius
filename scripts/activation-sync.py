@@ -124,42 +124,53 @@ def get_db_connection():
         raise
 
 
+FIRST_RUN_DAYS = 7      # without a saved state (first run) look this far back
+MAX_GROUPS_PER_RUN = 1000  # a long backlog (panel unreachable for days) is sent in parts, oldest first
+
+
 def fetch_unique_activations_last_24h(last_id: int = 0) -> tuple:
     """
-    Fetch unique successful authentications from the last 24 hours that Laravel has not
-    confirmed yet: rows newer than `last_id`, plus everything from the last few minutes
-    (overlap). Without a saved state (`last_id` 0) it is the whole 24 hours, as before.
-    Returns (distinct combinations of username, nas_identifier and mac address, highest id seen).
+    Fetch successful authentications Laravel has not confirmed yet: every row newer than `last_id`
+    (no matter how old - the panel may have been unreachable for days), plus the last few minutes
+    (overlap). Without a saved state (`last_id` 0) the last FIRST_RUN_DAYS days.
+
+    The activation time is the voucher's REAL first login (the earliest Access-Accept of that
+    username on that NAS ever), not the first one inside the window: a voucher used before an outage
+    must not get extra time. At most MAX_GROUPS_PER_RUN combinations per run, oldest first; the rest
+    follows on the next run (last_id only moves past what was sent).
+
+    Returns (distinct combinations of username, nas_identifier and mac address, highest id sent).
     """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # authdate is in the server's local time, so compare with local time
-        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        since = (datetime.now() - timedelta(days=FIRST_RUN_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
         recent = (datetime.now() - timedelta(minutes=OVERLAP_MINUTES)).strftime('%Y-%m-%d %H:%M:%S')
-        
+
         query = """
-            SELECT 
-                username,
-                nas_identifier,
-                calling_station_id,
-                MIN(authdate) as first_auth_date,
-                MAX(id) as max_id
-            FROM radpostauth
-            WHERE reply = 'Access-Accept'
-              AND authdate > ?
-              AND (? = 0 OR id > ? OR authdate > ?)
-            GROUP BY username, 
-                     nas_identifier,
-                     calling_station_id
-            ORDER BY first_auth_date ASC
+            SELECT
+                p.username,
+                p.nas_identifier,
+                p.calling_station_id,
+                (SELECT MIN(f.authdate) FROM radpostauth f
+                  WHERE f.username = p.username
+                    AND f.reply = 'Access-Accept'
+                    AND IFNULL(f.nas_identifier, '') = IFNULL(p.nas_identifier, '')) AS first_auth_date,
+                MAX(p.id) AS max_id
+            FROM radpostauth p
+            WHERE p.reply = 'Access-Accept'
+              AND ((? = 0 AND p.authdate > ?) OR (? > 0 AND (p.id > ? OR p.authdate > ?)))
+            GROUP BY p.username, p.nas_identifier, p.calling_station_id
+            ORDER BY max_id ASC
+            LIMIT ?
         """
-        
-        cursor.execute(query, (yesterday, last_id, last_id, recent))
+
+        cursor.execute(query, (last_id, since, last_id, last_id, recent, MAX_GROUPS_PER_RUN))
         rows = cursor.fetchall()
         conn.close()
-        
+
         # Convert to list of dicts
         activations = []
         for row in rows:
@@ -169,10 +180,10 @@ def fetch_unique_activations_last_24h(last_id: int = 0) -> tuple:
                 'calling_station_id': row['calling_station_id'],
                 'authenticated_at': authdate_to_utc_iso(row['first_auth_date'])
             })
-        
-        highest = max([row['max_id'] for row in rows], default=last_id)
+
+        highest = max([row['max_id'] for row in rows] + [last_id])
         return activations, highest
-        
+
     except sqlite3.Error as e:
         logger.error(f"Database query error: {e}")
         return [], last_id

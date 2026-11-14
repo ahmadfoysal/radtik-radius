@@ -7,6 +7,16 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-14
+
+### Fixed
+- Activation sync no longer forgets logins older than 24 hours. When the panel could not be reached for more than a day
+  (server down, wrong key), vouchers first used in that time were never reported: they stayed "unused" in the panel,
+  never got an `Expiration` and worked without a time limit. The sync now sends every login after the last confirmed one,
+  however old (the first run without a saved state looks 7 days back), in parts of at most 1000, oldest first.
+- The activation time is the voucher's real first login (the earliest accepted login of that code on that NAS), not the
+  first one inside the sync window, so a voucher used before an outage does not get extra time.
+
 ## [1.3.0] - 2026-11-12
 
 ### Added
@@ -171,7 +181,8 @@ The current version is in the [`VERSION`](VERSION) file; releases are tagged `vX
 - API rate limiting and throttling
 - WebSocket support for real-time updates
 
-[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/ahmadfoysal/radtik-radius/compare/v1.1.0...v1.1.1
